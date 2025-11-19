@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
@@ -9,11 +10,13 @@ const LiquidityManager: React.FC = () => {
   const liquidityEvents = useLiveQuery(() => db.liquidity.toArray()) || [];
   const portfolios = useLiveQuery(() => db.portfolios.toArray()) || [];
   
+  const [transactionType, setTransactionType] = useState<'IN' | 'OUT'>('IN');
+  
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     portfolio: 'Alejandro',
     amountEur: '',
-    type: 'Ingreso',
+    concept: '', // Renamed from 'type' to avoid confusion with visual type
     notes: ''
   });
 
@@ -24,22 +27,29 @@ const LiquidityManager: React.FC = () => {
     e.preventDefault();
     if (!formData.amountEur) return;
 
+    const numericAmount = parseFloat(formData.amountEur);
+    // If OUT, ensure it's negative. If IN, ensure it's positive.
+    const finalAmount = transactionType === 'OUT' ? -Math.abs(numericAmount) : Math.abs(numericAmount);
+
+    // Default text if empty
+    const finalType = formData.concept || (transactionType === 'IN' ? 'Ingreso' : 'Retirada');
+
     try {
       await db.liquidity.add({
         date: formData.date,
         portfolio: formData.portfolio as PortfolioOwner,
-        amountEur: parseFloat(formData.amountEur),
-        type: formData.type,
+        amountEur: finalAmount,
+        type: finalType,
         notes: formData.notes
       });
-      setFormData({ ...formData, amountEur: '', notes: '' });
+      setFormData({ ...formData, amountEur: '', notes: '', concept: '' });
     } catch (error) {
       console.error("Error adding liquidity:", error);
     }
   };
 
   const handleDelete = async (id?: number) => {
-    if (id && confirm('¿Borrar esta aportación?')) {
+    if (id && confirm('¿Borrar este movimiento de liquidez?')) {
       await db.liquidity.delete(id);
     }
   };
@@ -57,8 +67,35 @@ const LiquidityManager: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* FORM */}
-        <Card title="Registrar Aportación" className="h-fit">
+        <Card title="Registrar Movimiento" className="h-fit">
           <form onSubmit={handleSubmit} className="space-y-4">
+            
+            {/* SWITCHER IN/OUT */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 rounded-lg border border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setTransactionType('IN')}
+                  className={`py-2 px-4 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                    transactionType === 'IN' 
+                      ? 'bg-emerald-600 text-white shadow-lg' 
+                      : 'text-slate-400 hover:text-emerald-400'
+                  }`}
+                >
+                   <Icons.Up size={16} /> Ingreso
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransactionType('OUT')}
+                  className={`py-2 px-4 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                    transactionType === 'OUT' 
+                      ? 'bg-rose-600 text-white shadow-lg' 
+                      : 'text-slate-400 hover:text-rose-400'
+                  }`}
+                >
+                   <Icons.Down size={16} /> Retirada
+                </button>
+            </div>
+
             <div>
               <label className="block text-xs text-slate-400 mb-1">Fecha</label>
               <input 
@@ -91,17 +128,17 @@ const LiquidityManager: React.FC = () => {
                 placeholder="Ej. 500"
                 value={formData.amountEur} 
                 onChange={e => setFormData({...formData, amountEur: e.target.value})} 
-                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none font-mono text-lg"
+                className={`w-full bg-slate-900 border rounded p-2 text-white outline-none font-mono text-lg ${transactionType === 'OUT' ? 'border-rose-500/50 focus:border-rose-500' : 'border-emerald-500/50 focus:border-emerald-500'}`}
                 required
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Tipo / Concepto</label>
+              <label className="block text-xs text-slate-400 mb-1">Concepto (Opcional)</label>
               <input 
                 type="text" 
-                value={formData.type} 
-                onChange={e => setFormData({...formData, type: e.target.value})} 
-                placeholder="Ej. Ingreso Mensual"
+                value={formData.concept} 
+                onChange={e => setFormData({...formData, concept: e.target.value})} 
+                placeholder={transactionType === 'IN' ? "Ej. Ahorro Mensual" : "Ej. Retirada a Banco"}
                 className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none"
               />
             </div>
@@ -114,8 +151,17 @@ const LiquidityManager: React.FC = () => {
                 className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none"
               />
             </div>
-            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded-lg font-medium transition-colors flex justify-center items-center gap-2">
-               <Icons.Add size={18} /> Añadir Aportación
+            
+            <button 
+                type="submit" 
+                className={`w-full py-2 rounded-lg font-medium transition-colors flex justify-center items-center gap-2 text-white ${
+                    transactionType === 'IN' 
+                    ? 'bg-emerald-600 hover:bg-emerald-500' 
+                    : 'bg-rose-600 hover:bg-rose-500'
+                }`}
+            >
+               {transactionType === 'IN' ? <Icons.Add size={18} /> : <Icons.Arrow size={18} className="rotate-180" />}
+               {transactionType === 'IN' ? 'Registrar Ingreso' : 'Registrar Retirada'}
             </button>
           </form>
         </Card>
@@ -124,9 +170,13 @@ const LiquidityManager: React.FC = () => {
         <div className="lg:col-span-2">
            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-sm">
               <div className="px-6 py-4 border-b border-slate-700 flex justify-between items-center">
-                <h3 className="text-lg font-medium text-slate-100">Historial de Aportaciones</h3>
-                <span className="text-xs text-emerald-400 font-mono bg-emerald-900/20 px-2 py-1 rounded border border-emerald-900/50">
-                   Total: {formatCurrency(sortedEvents.reduce((acc, curr) => acc + curr.amountEur, 0))}
+                <h3 className="text-lg font-medium text-slate-100">Historial de Movimientos</h3>
+                <span className={`text-sm font-mono px-3 py-1 rounded border ${
+                    sortedEvents.reduce((acc, curr) => acc + curr.amountEur, 0) >= 0 
+                    ? 'bg-emerald-900/20 border-emerald-900/50 text-emerald-400' 
+                    : 'bg-rose-900/20 border-rose-900/50 text-rose-400'
+                }`}>
+                   Neto Total: {formatCurrency(sortedEvents.reduce((acc, curr) => acc + curr.amountEur, 0))}
                 </span>
               </div>
               <div className="overflow-x-auto max-h-[600px]">
@@ -142,24 +192,32 @@ const LiquidityManager: React.FC = () => {
                     </thead>
                     <tbody className="divide-y divide-slate-700">
                        {sortedEvents.length === 0 ? (
-                         <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">No hay aportaciones registradas.</td></tr>
+                         <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">No hay movimientos registrados.</td></tr>
                        ) : (
-                         sortedEvents.map((evt) => (
-                           <tr key={evt.id} className="hover:bg-slate-700/30">
-                              <td className="px-6 py-4 text-slate-300 font-mono text-xs">{evt.date}</td>
-                              <td className="px-6 py-4 text-white font-medium">{evt.portfolio}</td>
-                              <td className="px-6 py-4 text-slate-300">
-                                 {evt.type}
-                                 {evt.notes && <div className="text-xs text-slate-500 italic">{evt.notes}</div>}
-                              </td>
-                              <td className="px-6 py-4 text-right text-emerald-400 font-bold">{formatCurrency(evt.amountEur)}</td>
-                              <td className="px-6 py-4 text-right">
-                                 <button onClick={() => handleDelete(evt.id)} className="text-slate-500 hover:text-rose-400 p-1">
-                                    <Icons.Trash size={16} />
-                                 </button>
-                              </td>
-                           </tr>
-                         ))
+                         sortedEvents.map((evt) => {
+                           const isNegative = evt.amountEur < 0;
+                           return (
+                            <tr key={evt.id} className="hover:bg-slate-700/30">
+                                <td className="px-6 py-4 text-slate-300 font-mono text-xs">{evt.date}</td>
+                                <td className="px-6 py-4 text-white font-medium">{evt.portfolio}</td>
+                                <td className="px-6 py-4 text-slate-300">
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded mr-2 ${isNegative ? 'bg-rose-900/30 text-rose-400' : 'bg-emerald-900/30 text-emerald-400'}`}>
+                                        {isNegative ? 'OUT' : 'IN'}
+                                    </span>
+                                    {evt.type}
+                                    {evt.notes && <div className="text-xs text-slate-500 italic mt-1">{evt.notes}</div>}
+                                </td>
+                                <td className={`px-6 py-4 text-right font-bold ${isNegative ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                    {formatCurrency(evt.amountEur)}
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                    <button onClick={() => handleDelete(evt.id)} className="text-slate-500 hover:text-rose-400 p-1">
+                                        <Icons.Trash size={16} />
+                                    </button>
+                                </td>
+                            </tr>
+                           );
+                         })
                        )}
                     </tbody>
                  </table>

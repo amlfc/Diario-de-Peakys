@@ -43,7 +43,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
       return (
         <div className="bg-slate-800 border border-slate-600 p-3 rounded shadow-xl text-sm">
           <p className="font-bold text-white mb-2">{label} <span className="text-slate-400 font-normal text-xs">({data.assetName})</span></p>
-          <p className="text-slate-300">Coste: <span className="text-white font-mono">{formatCurrency(data.cost)}</span></p>
+          <p className="text-slate-300">Coste (Inc. Comis.): <span className="text-white font-mono">{formatCurrency(data.cost)}</span></p>
           <p className="text-slate-300">Valor Actual: <span className="text-white font-mono">{formatCurrency(data.value)}</span></p>
           <div className="mt-2 pt-2 border-t border-slate-600 flex justify-between gap-4">
             <span className="text-slate-400">Rendimiento:</span>
@@ -93,7 +93,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
         <StatCard 
           title="Valor en Activos"
           value={formatCurrency(metrics.totalValueEur)}
-          subValue={`G/P Latente: ${formatCurrency(metrics.unrealizedPnLEur)}`}
+          subValue={`Coste: ${formatCurrency(metrics.totalCostEur)} (Inc. Comis.)`}
           trend={metrics.unrealizedPnLEur >= 0 ? 'up' : 'down'}
           icon={<Icons.Dashboard size={20} />}
         />
@@ -153,7 +153,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
           )}
         </div>
         <p className="text-xs text-center text-slate-500 mt-2">
-          * La barra de color indica el Valor Actual (Verde = Ganancia, Rojo = Pérdida). La barra gris indica el Coste.
+          * La barra de color indica el Valor Actual (Verde = Ganancia, Rojo = Pérdida). La barra gris indica el Coste (Precio + Comisiones).
         </p>
       </Card>
 
