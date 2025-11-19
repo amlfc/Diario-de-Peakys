@@ -93,7 +93,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
         <StatCard 
           title="Valor en Activos"
           value={formatCurrency(metrics.totalValueEur)}
-          subValue={`Coste: ${formatCurrency(metrics.totalCostEur)} (Inc. Comis.)`}
+          subValue={`G/P Latente: ${formatCurrency(metrics.unrealizedPnLEur)} (${formatPct(metrics.unrealizedPnLPct)})`}
           trend={metrics.unrealizedPnLEur >= 0 ? 'up' : 'down'}
           icon={<Icons.Dashboard size={20} />}
         />
