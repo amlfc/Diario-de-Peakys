@@ -10,12 +10,6 @@ const parseExcelDate = (raw: any): string => {
 
   const strVal = raw.toString().toLowerCase().trim();
   if (strVal === 'inicio') {
-      // Return a distinct 'start' date or just keep it as string if logic allows. 
-      // To keep sorting working, let's pick a convention or simply today's date minus a few years 
-      // OR we assume the user handles sorting. 
-      // Best approach: Use a fixed early date for sorting, but maybe store the label? 
-      // Since our DB type is string, we'll stick to ISO dates for consistency in charts, 
-      // but we can default to a "start of year" if needed.
       return '2023-01-01'; // Default fallback for "Inicio" text to ensure it sorts at start
   }
 
@@ -159,7 +153,10 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
                     const ticker = tickerRaw.toString().toUpperCase().trim();
                     const rawQty = cleanNumber(getCell(row, colMap, ['Cantidad', 'Quantity', 'Units', 'Unidades', 'Shares', 'Títulos', 'Titulos', 'Volumen']));
                     const rawPrice = cleanNumber(getCell(row, colMap, ['Precio', 'Price', 'Coste', 'Cost', 'Amount', 'Valor']));
-                    const commRaw = cleanNumber(getCell(row, colMap, ['Comision', 'Comisiones', 'Commission', 'Fees', 'Fee', 'Gastos']));
+                    
+                    // Added accented variations for Commission
+                    const commRaw = cleanNumber(getCell(row, colMap, ['Comision', 'Comisión', 'Comisiones', 'Commission', 'Fees', 'Fee', 'Gastos', 'Costs']));
+                    
                     const fxRaw = cleanNumber(getCell(row, colMap, ['Tipo Cambio', 'FX', 'FX Rate', 'Exchange Rate', 'Cambio']));
                     
                     const typeRaw = getCell(row, colMap, ['Tipo', 'Type', 'Operacion', 'Direction', 'B/S', 'Side']);
@@ -264,12 +261,9 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
                         const rawDate = getCell(row, liqColMap, ['Fecha', 'Date', 'Dia']);
                         const type = (getCell(row, liqColMap, ['Tipo', 'Type', 'Concepto', 'Descripcion']) || 'Ingreso').toString().trim();
                         
-                        // Handle "Inicio" date text specifically for display context if needed, 
-                        // parseExcelDate will handle the sorting value
                         const date = parseExcelDate(rawDate);
                         const notes = getCell(row, liqColMap, ['Notas', 'Notes'])?.toString() || '';
 
-                        // If the raw date was literally "Inicio", append it to notes to preserve context
                         const finalNotes = rawDate && rawDate.toString().toLowerCase().includes('inicio') 
                             ? `${notes} (Aportación Inicial)`.trim() 
                             : notes;

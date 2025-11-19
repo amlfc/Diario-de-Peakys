@@ -83,7 +83,7 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
                         {formatCurrency(tx.price, tx.currencyPlatform)}
                     </td>
                     <td className="px-6 py-4 text-right text-slate-400 text-xs">
-                        {tx.commission > 0 ? formatCurrency(tx.commission, tx.currencyPlatform) : '-'}
+                        {formatCurrency(tx.commission, tx.currencyPlatform)}
                     </td>
                     <td className={`px-6 py-4 text-right font-medium ${isBuy ? 'text-slate-200' : 'text-emerald-400'}`}>
                         {formatCurrency(netTotal, tx.currencyPlatform)}
