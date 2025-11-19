@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { calculatePositionsAndMetrics } from './services/marketDataService';
-import { Position, DashboardMetrics, PortfolioOwner } from './types';
+import { Position, DashboardMetrics, PortfolioOwner, Transaction } from './types';
 import { seedDatabase, db } from './db';
 import Dashboard from './components/Dashboard';
 import PositionsTable from './components/PositionsTable';
 import TransactionForm from './components/TransactionForm';
+import TransactionsHistory from './components/TransactionsHistory'; // New Import
 import Diversification from './components/Diversification';
 import FundamentalRefTable from './components/FundamentalRef';
 import MobileView from './components/MobileView';
 import SettingsView from './components/SettingsView';
+import LiquidityManager from './components/LiquidityManager';
 import { Icons } from './components/ui/Icons';
 import { useLiveQuery } from 'dexie-react-hooks'; 
 
@@ -26,9 +28,12 @@ const SidebarItem = ({ icon: Icon, label, active, onClick }: any) => (
 );
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'positions' | 'transactions' | 'analysis' | 'mobile' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'positions' | 'transactions' | 'liquidity' | 'analysis' | 'mobile' | 'settings'>('dashboard');
   const [selectedPortfolio, setSelectedPortfolio] = useState<PortfolioOwner | 'ALL'>('ALL');
-  const [showAddTransaction, setShowAddTransaction] = useState(false);
+  
+  // Logic for showing form (Create or Edit)
+  const [isFormVisible, setIsFormVisible] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | undefined>(undefined);
   
   // State for calculated data
   const [positions, setPositions] = useState<Position[]>([]);
@@ -39,6 +44,7 @@ const App: React.FC = () => {
 
   // Live queries
   const transactionsTrigger = useLiveQuery(() => db.transactions.toArray());
+  const liquidityTrigger = useLiveQuery(() => db.liquidity.toArray());
   const portfolios = useLiveQuery(() => db.portfolios.toArray()) || [];
 
   useEffect(() => {
@@ -58,7 +64,28 @@ const App: React.FC = () => {
     // Simulate live price ticking every 5 seconds
     const interval = setInterval(refresh, 5000);
     return () => clearInterval(interval);
-  }, [selectedPortfolio, transactionsTrigger]); 
+  }, [selectedPortfolio, transactionsTrigger, liquidityTrigger]); 
+
+  // Handlers
+  const handleAddNew = () => {
+    setEditingTransaction(undefined);
+    setIsFormVisible(true);
+    setActiveTab('transactions');
+  };
+
+  const handleEditTransaction = (tx: Transaction) => {
+    setEditingTransaction(tx);
+    setIsFormVisible(true);
+    // Ensure we are on the tab, though likely already there
+    setActiveTab('transactions'); 
+    // Scroll to top to see form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleFormClose = () => {
+    setIsFormVisible(false);
+    setEditingTransaction(undefined);
+  };
 
   return (
     <div className="flex h-screen bg-slate-900 overflow-hidden">
@@ -77,6 +104,7 @@ const App: React.FC = () => {
             <SidebarItem icon={Icons.Dashboard} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
             <SidebarItem icon={Icons.Positions} label="Posiciones Abiertas" active={activeTab === 'positions'} onClick={() => setActiveTab('positions')} />
             <SidebarItem icon={Icons.Transactions} label="Transacciones" active={activeTab === 'transactions'} onClick={() => setActiveTab('transactions')} />
+            <SidebarItem icon={Icons.Liquidity} label="Gestión de Liquidez" active={activeTab === 'liquidity'} onClick={() => setActiveTab('liquidity')} />
           </div>
           
           <div className="mb-6">
@@ -115,10 +143,7 @@ const App: React.FC = () => {
           </div>
           
           <button 
-            onClick={() => {
-              setShowAddTransaction(true);
-              setActiveTab('transactions');
-            }}
+            onClick={handleAddNew}
             className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
           >
             <Icons.Add size={16} />
@@ -151,23 +176,23 @@ const App: React.FC = () => {
 
             {activeTab === 'transactions' && (
               <div className="space-y-6">
-                {showAddTransaction && (
+                {isFormVisible && (
                   <TransactionForm 
-                    onSuccess={() => setShowAddTransaction(false)} 
-                    onCancel={() => setShowAddTransaction(false)} 
+                    onSuccess={handleFormClose} 
+                    onCancel={handleFormClose}
+                    initialData={editingTransaction} 
                   />
                 )}
-                <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
-                   <div className="px-6 py-4 border-b border-slate-700">
-                      <h3 className="text-lg font-medium text-slate-100">Historial Reciente</h3>
-                   </div>
-                   {/* We could implement a full transaction table here, simpler for now */}
-                   <div className="p-6 text-slate-400 text-center text-sm">
-                     Las transacciones se procesan automáticamente en la base de datos local. 
-                     <br/>Usa el botón "Nueva Operación" para añadir entradas.
-                   </div>
-                </div>
+                
+                <TransactionsHistory 
+                  selectedPortfolio={selectedPortfolio} 
+                  onEdit={handleEditTransaction} 
+                />
               </div>
+            )}
+
+            {activeTab === 'liquidity' && (
+              <LiquidityManager />
             )}
 
             {activeTab === 'analysis' && (

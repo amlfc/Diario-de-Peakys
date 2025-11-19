@@ -1,21 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { AssetType, Currency, PortfolioOwner, TransactionType, DefaultAssetTypes } from '../types';
+import { AssetType, Currency, PortfolioOwner, TransactionType, DefaultAssetTypes, Transaction } from '../types';
 import { Icons } from './ui/Icons';
 
 interface TransactionFormProps {
   onSuccess: () => void;
   onCancel: () => void;
+  initialData?: Transaction; // Optional prop for editing mode
 }
 
-const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel }) => {
+const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, initialData }) => {
   const portfolios = useLiveQuery(() => db.portfolios.toArray()) || [];
   const assetTypes = useLiveQuery(() => db.assetTypes.toArray()) || [];
   
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
-    portfolio: 'Alejandro', // Default fallback
+    portfolio: 'Alejandro', 
     type: TransactionType.Buy,
     ticker: '',
     assetName: '',
@@ -27,10 +28,29 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel }
     fxRateToEur: '1',
   });
 
+  // Load initial data if editing
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        date: initialData.date,
+        portfolio: initialData.portfolio,
+        type: initialData.type,
+        ticker: initialData.ticker,
+        assetName: initialData.assetName,
+        assetType: initialData.assetType,
+        quantity: initialData.quantity.toString(),
+        price: initialData.price.toString(),
+        commission: initialData.commission.toString(),
+        currencyPlatform: initialData.currencyPlatform,
+        fxRateToEur: initialData.fxRateToEur.toString(),
+      });
+    }
+  }, [initialData]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await db.transactions.add({
+      const payload = {
         date: formData.date,
         portfolio: formData.portfolio as PortfolioOwner,
         type: formData.type as TransactionType,
@@ -42,10 +62,18 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel }
         commission: parseFloat(formData.commission),
         currencyPlatform: formData.currencyPlatform as Currency,
         fxRateToEur: parseFloat(formData.fxRateToEur),
-      });
+      };
+
+      if (initialData && initialData.id) {
+        // Update existing
+        await db.transactions.update(initialData.id, payload);
+      } else {
+        // Create new
+        await db.transactions.add(payload);
+      }
       onSuccess();
     } catch (error) {
-      console.error("Error adding transaction:", error);
+      console.error("Error saving transaction:", error);
       alert("Error al guardar la transacción");
     }
   };
@@ -54,10 +82,13 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel }
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const isEditing = !!initialData;
+
   return (
-    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 mb-6 animate-fade-in">
       <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
-        <Icons.Add size={18} /> Nueva Transacción
+        {isEditing ? <Icons.Settings size={18} /> : <Icons.Add size={18} />} 
+        {isEditing ? 'Editar Transacción' : 'Nueva Transacción'}
       </h3>
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div>
@@ -106,7 +137,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel }
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Precio (Divisa Plat)</label>
-          <input type="number" step="0.01" name="price" value={formData.price} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none" required />
+          <input type="number" step="0.000001" name="price" value={formData.price} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none" required />
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Comisión</label>
@@ -126,7 +157,9 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel }
 
         <div className="col-span-1 md:col-span-2 lg:col-span-3 flex justify-end gap-3 mt-4">
           <button type="button" onClick={onCancel} className="px-4 py-2 rounded-lg text-slate-300 hover:bg-slate-700 transition-colors">Cancelar</button>
-          <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-medium">Guardar Transacción</button>
+          <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-medium">
+            {isEditing ? 'Guardar Cambios' : 'Crear Transacción'}
+          </button>
         </div>
       </form>
     </div>

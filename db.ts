@@ -25,17 +25,16 @@ class PortfolioDatabase extends Dexie {
 
 export const db = new PortfolioDatabase();
 
-// Seeder function to populate initial data if empty (simulating the Excel starting point)
+// Seeder function to populate initial data if empty
 export const seedDatabase = async () => {
   
-  // Check if we have already seeded or if the user explicitly wants an empty DB
-  // This flag is managed in SettingsView.tsx
+  // Check if we have already seeded
   const hasSeeded = localStorage.getItem('DATA_SEEDED');
   if (hasSeeded === 'true') {
     return;
   }
 
-  // Seed Portfolios if empty
+  // 1. Seed Portfolios if empty (Required for dropdowns)
   const portfolioCount = await db.portfolios.count();
   if (portfolioCount === 0) {
     await db.portfolios.bulkAdd([
@@ -46,7 +45,7 @@ export const seedDatabase = async () => {
     ]);
   }
 
-  // Seed Asset Types if empty
+  // 2. Seed Asset Types if empty (Required for dropdowns)
   const assetTypeCount = await db.assetTypes.count();
   if (assetTypeCount === 0) {
     await db.assetTypes.bulkAdd([
@@ -61,80 +60,9 @@ export const seedDatabase = async () => {
     ]);
   }
 
-  // Seed Transactions if empty
-  const count = await db.transactions.count();
-  if (count === 0) {
-    await db.transactions.bulkAdd([
-      {
-        date: '2023-01-15',
-        portfolio: DefaultPortfolios.Alejandro,
-        type: TransactionType.Buy,
-        ticker: 'AAPL',
-        assetName: 'Apple Inc.',
-        assetType: DefaultAssetTypes.ActionLong,
-        quantity: 10,
-        price: 150,
-        commission: 1,
-        currencyPlatform: Currency.USD,
-        fxRateToEur: 0.92,
-      },
-      {
-        date: '2023-02-10',
-        portfolio: DefaultPortfolios.Alejandro,
-        type: TransactionType.Buy,
-        ticker: 'MSFT',
-        assetName: 'Microsoft Corp',
-        assetType: DefaultAssetTypes.ActionLong,
-        quantity: 5,
-        price: 250,
-        commission: 1,
-        currencyPlatform: Currency.USD,
-        fxRateToEur: 0.93,
-      },
-      {
-        date: '2023-03-05',
-        portfolio: DefaultPortfolios.Marta,
-        type: TransactionType.Buy,
-        ticker: 'VWRL',
-        assetName: 'Vanguard FTSE All-World',
-        assetType: DefaultAssetTypes.ETFLong,
-        quantity: 50,
-        price: 98,
-        commission: 2,
-        currencyPlatform: Currency.EUR,
-        fxRateToEur: 1,
-      },
-       {
-        date: '2023-06-20',
-        portfolio: DefaultPortfolios.Alejandro,
-        type: TransactionType.Sell,
-        ticker: 'AAPL',
-        assetName: 'Apple Inc.',
-        assetType: DefaultAssetTypes.ActionLong,
-        quantity: 2,
-        price: 180, // Profit
-        commission: 1,
-        currencyPlatform: Currency.USD,
-        fxRateToEur: 0.91,
-      }
-    ]);
+  // NOTE: Removed sample transactions and liquidity. 
+  // The app starts clean for the user.
 
-    await db.liquidity.bulkAdd([
-      {
-        date: '2023-01-01',
-        portfolio: DefaultPortfolios.Alejandro,
-        amountEur: 10000,
-        type: 'Ingreso Inicial'
-      },
-      {
-        date: '2023-01-01',
-        portfolio: DefaultPortfolios.Marta,
-        amountEur: 5000,
-        type: 'Ingreso Inicial'
-      }
-    ]);
-  }
-
-  // Mark as seeded so we don't overwrite or re-seed on next reload if user clears DB
+  // Mark as seeded so we don't try again
   localStorage.setItem('DATA_SEEDED', 'true');
 };

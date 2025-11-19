@@ -11,7 +11,8 @@ import {
   Wallet,
   Smartphone,
   ArrowRightLeft,
-  Trash2
+  Trash2,
+  Coins
 } from 'lucide-react';
 
 export const Icons = {
@@ -26,5 +27,6 @@ export const Icons = {
   Wallet: Wallet,
   Mobile: Smartphone,
   Arrow: ArrowRightLeft,
-  Trash: Trash2
+  Trash: Trash2,
+  Liquidity: Coins
 };
