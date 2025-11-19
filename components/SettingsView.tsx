@@ -37,21 +37,36 @@ const SettingsView: React.FC = () => {
   };
 
   const handleReset = async () => {
-    if (confirm('¿Estás seguro de que quieres borrar todos los datos y restaurar los datos de ejemplo? Esta acción no se puede deshacer.')) {
-      await (db as any).delete();
-      localStorage.removeItem('PRICE_FEED_URL');
-      window.location.reload();
+    if (confirm('¿Estás seguro de que quieres restaurar los datos de ejemplo? Se borrarán tus cambios actuales y se cargarán los datos demo.')) {
+      try {
+        await (db as any).delete();
+        localStorage.removeItem('PRICE_FEED_URL');
+        // Remove the seed flag to allow the app to re-populate data on reload
+        localStorage.removeItem('DATA_SEEDED');
+        window.location.reload();
+      } catch (error) {
+        console.error("Error al resetear DB:", error);
+        alert("Ocurrió un error al restaurar. Intenta recargar la página.");
+      }
     }
   };
 
   const handleClear = async () => {
-    if (confirm('¿Estás seguro de que quieres borrar TODAS las transacciones y datos? Quedará vacío.')) {
-        await (db as any).transaction('rw', db.transactions, db.liquidity, async () => {
-            await db.transactions.clear();
-            await db.liquidity.clear();
-        });
-        alert('Base de datos vaciada.');
-        window.location.reload();
+    if (confirm('¿Estás seguro de que quieres borrar TODA la base de datos? Quedará completamente vacía (sin carteras, ni activos, ni transacciones).')) {
+        try {
+            // Usamos delete() en lugar de limpiar tabla por tabla para asegurar un borrado completo y limpio
+            // Esto elimina el archivo de la base de datos local por completo.
+            await (db as any).delete();
+            
+            // Establecemos la bandera para EVITAR que se carguen los datos de ejemplo al recargar
+            localStorage.setItem('DATA_SEEDED', 'true');
+            
+            alert('Base de datos vaciada correctamente.');
+            window.location.reload();
+        } catch (error) {
+            console.error("Error al vaciar DB:", error);
+            alert("Ocurrió un error al borrar la base de datos. Por favor revisa la consola o recarga la página.");
+        }
     }
   };
 

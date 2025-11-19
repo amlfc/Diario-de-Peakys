@@ -28,6 +28,13 @@ export const db = new PortfolioDatabase();
 // Seeder function to populate initial data if empty (simulating the Excel starting point)
 export const seedDatabase = async () => {
   
+  // Check if we have already seeded or if the user explicitly wants an empty DB
+  // This flag is managed in SettingsView.tsx
+  const hasSeeded = localStorage.getItem('DATA_SEEDED');
+  if (hasSeeded === 'true') {
+    return;
+  }
+
   // Seed Portfolios if empty
   const portfolioCount = await db.portfolios.count();
   if (portfolioCount === 0) {
@@ -127,4 +134,7 @@ export const seedDatabase = async () => {
       }
     ]);
   }
+
+  // Mark as seeded so we don't overwrite or re-seed on next reload if user clears DB
+  localStorage.setItem('DATA_SEEDED', 'true');
 };
