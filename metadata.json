@@ -1,0 +1,5 @@
+{
+  "name": "Diario de Peakys",
+  "description": "A professional-grade investment tracking application replicating complex Excel logic with a modern dashboard interface. Features multi-portfolio management, transaction logging, real-time P&L calculation, and asset diversification analysis.",
+  "requestFramePermissions": []
+}
