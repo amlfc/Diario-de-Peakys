@@ -133,42 +133,35 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
 export const exportTransactionsToExcel = async (): Promise<void> => {
   try {
     const transactions = await db.transactions.toArray();
-
+    
     if (transactions.length === 0) {
       alert('No hay transacciones para exportar.');
       return;
     }
 
-    // Format data for Excel (matching Import columns for round-trip capability)
-    const rows = transactions.map(tx => ({
-      'Fecha': tx.date,
-      'Cartera': tx.portfolio,
-      'Tipo': tx.type,
-      'Ticker': tx.ticker,
-      'Nombre Activo': tx.assetName,
-      'Tipo Activo': tx.assetType,
-      'Cantidad': tx.quantity,
-      'Precio': tx.price,
-      'Comisión': tx.commission,
-      'Divisa Moneda Plataforma': tx.currencyPlatform,
-      'Tipo Cambio': tx.fxRateToEur,
-      'Notas': tx.notes || ''
+    // Format data matching the structure we prefer for imports (and user's excel)
+    const data = transactions.map(t => ({
+      'Fecha': t.date,
+      'Cartera': t.portfolio,
+      'Tipo': t.type,
+      'Ticker': t.ticker,
+      'Nombre Activo': t.assetName,
+      'Tipo Activo': t.assetType,
+      'Cantidad': t.quantity,
+      'Precio': t.price,
+      'Comisión': t.commission,
+      'Divisa': t.currencyPlatform,
+      'Tipo Cambio': t.fxRateToEur,
+      'Notas': t.notes || ''
     }));
 
-    // Create Workbook
-    const worksheet = utils.json_to_sheet(rows);
-    const workbook = utils.book_new();
-    utils.book_append_sheet(workbook, worksheet, 'Historial Transacciones');
+    const ws = utils.json_to_sheet(data);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Historial Transacciones");
 
-    // Generate Filename with Date
-    const dateStr = new Date().toISOString().split('T')[0];
-    const fileName = `DiarioPeakys_Transacciones_${dateStr}.xlsx`;
-
-    // Download
-    writeFile(workbook, fileName);
-
+    writeFile(wb, "Historial_Transacciones_Peakys.xlsx");
   } catch (error) {
-    console.error('Error exporting excel:', error);
-    alert('Error al generar el archivo Excel.');
+    console.error('Error exporting to excel:', error);
+    alert('Ocurrió un error al intentar generar el archivo Excel.');
   }
 };

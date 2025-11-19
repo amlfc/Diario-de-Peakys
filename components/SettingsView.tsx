@@ -8,7 +8,6 @@ import { importTransactionsFromExcel, exportTransactionsToExcel } from '../servi
 const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   
   // Portfolio & Asset State
   const [newPortfolioName, setNewPortfolioName] = useState('');
@@ -76,9 +75,7 @@ const SettingsView: React.FC = () => {
   };
 
   const handleExport = async () => {
-    setIsExporting(true);
     await exportTransactionsToExcel();
-    setIsExporting(false);
   };
 
   // Portfolio Handlers
@@ -164,58 +161,47 @@ const SettingsView: React.FC = () => {
            </div>
         </Card>
         
-        {/* IMPORT/EXPORT SECTION */}
-        <Card title="Datos (Importar / Exportar)">
+        {/* IMPORT / EXPORT SECTION */}
+        <Card title="Importar / Exportar Excel">
           <div className="space-y-4">
             <p className="text-sm text-slate-400">
-              Sincroniza tus datos entre dispositivos o haz copias de seguridad.
+              Gestiona tus datos masivamente.
+              <br />
+              <span className="text-xs italic text-slate-500">Columnas esperadas en Importar: Fecha, Cartera, Tipo, Ticker, Nombre Activo, Cantidad, Precio, Comisión, Divisa, Tipo Cambio.</span>
             </p>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* IMPORT */}
-               <div className="flex items-center">
-                 <input 
-                   type="file" 
-                   ref={fileInputRef}
-                   accept=".xlsx, .xls"
-                   onChange={handleFileChange}
-                   className="hidden"
-                 />
-                 <button 
-                    disabled={isImporting}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-lg flex justify-center items-center gap-2 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                 >
-                   {isImporting ? (
-                     <span>Procesando...</span>
-                   ) : (
-                     <>
-                       <Icons.Add size={18} className="rotate-45" />
-                       Subir Excel (Importar)
-                     </>
-                   )}
-                 </button>
-               </div>
-
-               {/* EXPORT */}
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+               <input 
+                 type="file" 
+                 ref={fileInputRef}
+                 accept=".xlsx, .xls"
+                 onChange={handleFileChange}
+                 className="hidden"
+               />
+               
                <button 
-                  disabled={isExporting}
-                  onClick={handleExport}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-lg flex justify-center items-center gap-2 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isImporting}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full sm:w-auto flex-1 bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                >
-                 {isExporting ? (
-                   <span>Generando...</span>
+                 {isImporting ? (
+                   <span>Procesando...</span>
                  ) : (
                    <>
-                     <Icons.Down size={18} />
-                     Descargar Excel (Exportar)
+                     <Icons.Add size={18} className="rotate-45" /> {/* Mimic upload icon */}
+                     Subir Excel Transacciones
                    </>
                  )}
                </button>
+
+               <button 
+                  onClick={handleExport}
+                  className="w-full sm:w-auto flex-1 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors"
+               >
+                  <Icons.Arrow size={18} className="rotate-90" /> {/* Down arrow */}
+                  Descargar Excel Transacciones
+               </button>
             </div>
-             <p className="text-xs italic text-slate-500 mt-2">
-                La exportación genera un archivo compatible con la importación. Úsalo para mover datos al móvil.
-             </p>
           </div>
         </Card>
 
@@ -287,7 +273,7 @@ const SettingsView: React.FC = () => {
           </Card>
 
           {/* DATA MANAGEMENT & RESET */}
-          <Card title="Zona de Peligro" className="md:col-span-2">
+          <Card title="Base de Datos" className="md:col-span-2">
             <div className="space-y-4">
               <p className="text-sm text-slate-400">
                 Acciones destructivas sobre la base de datos local.
