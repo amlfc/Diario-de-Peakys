@@ -228,7 +228,6 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     let pos = positionMap.get(key);
 
     // SAFETY CHECK: Force FX Rate to 1 if Currency is EUR
-    // This fixes user error where they might have selected EUR but kept a 0.86 rate from previous input
     let effectiveFxRate = tx.fxRateToEur;
     if (tx.currencyPlatform === Currency.EUR) {
         effectiveFxRate = 1;
@@ -264,9 +263,9 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
       
       // --- COST BASIS CALCULATION ---
       // Net Cost = (Price * Qty) + Commission.
-      // This effectively RAISES the average price (Break Even Price).
-      const txCostOrigin = (tx.quantity * tx.price) + tx.commission;
-      const txCostEur = txCostOrigin * effectiveFxRate;
+      const buyCommissionEur = (tx.commission || 0) * effectiveFxRate;
+      const txCostOrigin = (tx.quantity * tx.price) + (tx.commission || 0); // Commission in Origin/Platform Currency
+      const txCostEur = (tx.quantity * tx.price * effectiveFxRate) + buyCommissionEur;
       
       const newQuantity = pos.quantity + tx.quantity;
       
@@ -285,8 +284,6 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
           
           pos.totalCostOrigin = newTotalCostOrigin;
 
-          // FX Weighted Average
-          // We assume the FX rate applies to the whole cost including commission
           if (pos.totalCostOrigin > 0) {
              pos.avgFxRate = newTotalCostEur / pos.totalCostOrigin;
           } else {
@@ -295,20 +292,24 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
       }
 
     } else if (tx.type === TransactionType.Sell) {
-      // Sell Proceeds = (Price * Qty) - Commission
-      // PnL = Sell Proceeds - Cost of Goods Sold
-      const sellValueEur = (tx.quantity * tx.price * effectiveFxRate) - (tx.commission * effectiveFxRate);
+      // --- SELL REALIZED PNL LOGIC ---
+      // Venta Neta (Net Proceeds) = (Precio Venta * Qty) - Comisión Venta
+      const sellCommissionEur = (tx.commission || 0) * effectiveFxRate;
+      const sellValueGrossEur = (tx.quantity * tx.price * effectiveFxRate);
+      const sellValueNetEur = sellValueGrossEur - sellCommissionEur;
       
-      // Cost of Goods Sold (Uses the Avg Price which includes Buy Commissions)
+      // Cost of Goods Sold (Base Cost)
+      // This uses avgPriceEur which ALREADY includes the Buy Commissions.
+      // So PnL = (Sell Price - Sell Comm) - (Buy Price + Buy Comm) -> Correct Net PnL.
       const costOfSoldEur = tx.quantity * pos.avgPriceEur;
       
-      // Reduce Origin Cost proportionally to keep Avg Price constant
+      // Reduce Origin Cost proportionally
       if (pos.quantity > 0) {
           const proportion = tx.quantity / pos.quantity;
           pos.totalCostOrigin -= (pos.totalCostOrigin * proportion);
       }
 
-      const pnl = sellValueEur - costOfSoldEur;
+      const pnl = sellValueNetEur - costOfSoldEur;
       pos.realizedPnLEur += pnl;
       
       pos.quantity -= tx.quantity;
@@ -338,8 +339,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const marketData = cachedMarketData[pos.ticker];
     const rawFeedPrice = marketData?.price || 0;
     
-    // Determine Price Feed Currency (defaults to platform if not found)
-    // NOTE: Feed currency (e.g. GBp) might differ from Platform/Origin currency (e.g. USD)
+    // Determine Price Feed Currency
     const feedCurrency = marketData?.currency || pos.currencyPlatform;
 
     // Handle GBp / GBX (Pence) logic
@@ -349,60 +349,56 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     }
     
     // FX Rate from FEED CURRENCY to EUR
-    // e.g. if Feed is GBp, we use GBP rate.
     const effectiveFeedCurrency = (feedCurrency === 'GBp' || feedCurrency === 'GBX') ? 'GBP' : feedCurrency;
     const fxFeedToEur = getFxRateToEur(effectiveFeedCurrency);
 
     // Calculate EUR Value (Truth)
-    // If no live price, fallback to average platform price (and assumes platform currency for FX)
     const priceToUseInEur = rawFeedPrice > 0 
        ? adjustedFeedPrice * fxFeedToEur
        : pos.avgPricePlatform * pos.avgFxRate;
 
     if (!isClosed) {
       pos.currentValueEur = pos.quantity * priceToUseInEur;
-      pos.totalCostEur = pos.quantity * pos.avgPriceEur; // Uses the commission-adjusted avg
+      pos.totalCostEur = pos.quantity * pos.avgPriceEur; // Uses the commission-adjusted avg (Total Invested)
       pos.unrealizedPnLEur = pos.currentValueEur - pos.totalCostEur;
       pos.unrealizedPnLPct = pos.totalCostEur !== 0 ? (pos.unrealizedPnLEur / pos.totalCostEur) : 0;
       
       // --- CROSS CURRENCY DISPLAY LOGIC ---
-      // We want to display values in 'pos.currencyOrigin' (The currency user entered)
-      // So we convert the Calculated EUR value BACK to Origin Currency.
       const fxOriginToEur = getFxRateToEur(pos.currencyOrigin);
       const safeFxOrigin = fxOriginToEur > 0 ? fxOriginToEur : 1;
       
       pos.currentFxRateToEur = safeFxOrigin; 
       pos.currentValueOrigin = pos.currentValueEur / safeFxOrigin;
-      
-      // Derived Price in Origin Currency
       pos.currentPriceOrigin = priceToUseInEur / safeFxOrigin; 
-      
       pos.unrealizedPnLOrigin = pos.currentValueOrigin - pos.totalCostOrigin;
 
       activePositions.push(pos);
 
       dashboard.totalValueEur += pos.currentValueEur;
-      dashboard.totalCostEur += pos.totalCostEur; // Tracks Total Cost of ACTIVE assets
+      dashboard.totalCostEur += pos.totalCostEur; // Sum of Cost of Active Assets
       dashboard.unrealizedPnLEur += pos.unrealizedPnLEur;
     }
     
+    // Accumulate Realized PnL from ALL positions (even closed ones)
     dashboard.realizedPnLEur += pos.realizedPnLEur;
   }
 
   dashboard.totalLiquidityAddedEur = liquidity.reduce((acc, curr) => acc + curr.amountEur, 0);
   dashboard.unrealizedPnLPct = dashboard.totalCostEur > 0 ? (dashboard.unrealizedPnLEur / dashboard.totalCostEur) : 0;
   
-  // --- LIQUIDITY FORMULA (Dinero Libre) ---
-  // EXPLICIT CALCULATION AS REQUESTED
-  // Formula: Dinero Libre = (Lo que ingresaste + Lo que ya ganaste) - Lo que tienes gastado en acciones
+  // --- LIQUIDITY FORMULA (Cálculo de Caja Libre) ---
+  // Dinero Libre = (Total Ingresado + Ganancias ya Cerradas) - Dinero Gastado en Acciones Activas
+  // Nota: realizedPnLEur ya incluye el descuento de comisiones de venta (Neto).
+  // Nota: totalCostEur ya incluye las comisiones de compra (Bruto).
   
-  const totalDeposited = dashboard.totalLiquidityAddedEur;
-  const totalRealizedGains = dashboard.realizedPnLEur; // This already subtracts commissions
-  const totalInvestedCost = dashboard.totalCostEur; // This includes commissions of active assets
+  const totalIngresado = dashboard.totalLiquidityAddedEur;
+  const totalGanadoCerrado = dashboard.realizedPnLEur; 
+  const totalGastadoActivo = dashboard.totalCostEur; 
   
-  dashboard.availableCashEur = (totalDeposited + totalRealizedGains) - totalInvestedCost;
+  dashboard.availableCashEur = (totalIngresado + totalGanadoCerrado) - totalGastadoActivo;
 
-  // Total Return = (Total Equity - Total Deposited) / Total Deposited
+  // Total Return Calculation
+  // Equity = Value of Assets + Cash
   const currentEquity = dashboard.totalValueEur + dashboard.availableCashEur;
   
   if (dashboard.totalLiquidityAddedEur > 0) {
