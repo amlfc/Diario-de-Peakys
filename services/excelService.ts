@@ -159,7 +159,7 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
                     const ticker = tickerRaw.toString().toUpperCase().trim();
                     const rawQty = cleanNumber(getCell(row, colMap, ['Cantidad', 'Quantity', 'Units', 'Unidades', 'Shares', 'Títulos', 'Titulos', 'Volumen']));
                     const rawPrice = cleanNumber(getCell(row, colMap, ['Precio', 'Price', 'Coste', 'Cost', 'Amount', 'Valor']));
-                    const commRaw = cleanNumber(getCell(row, colMap, ['Comision', 'Commission', 'Fees', 'Fee', 'Gastos']));
+                    const commRaw = cleanNumber(getCell(row, colMap, ['Comision', 'Comisiones', 'Commission', 'Fees', 'Fee', 'Gastos']));
                     const fxRaw = cleanNumber(getCell(row, colMap, ['Tipo Cambio', 'FX', 'FX Rate', 'Exchange Rate', 'Cambio']));
                     
                     const typeRaw = getCell(row, colMap, ['Tipo', 'Type', 'Operacion', 'Direction', 'B/S', 'Side']);

@@ -1,3 +1,4 @@
+
 // Enums based on Excel Dropdowns
 
 // Changed from Enum to string type to support dynamic creation
@@ -91,27 +92,32 @@ export interface Position {
   assetName: string;
   portfolio: PortfolioOwner;
   assetType: AssetType;
-  currencyPlatform: Currency;
-  currencyOrigin: Currency; // Simplified: assumed same as platform for this demo unless mapped
+  
+  // Currencies
+  currencyPlatform: Currency; // The currency used in the broker (e.g. EUR for Trade Republic)
+  currencyOrigin: string;   // The real asset currency (e.g. USD for AAPL), fetched from Feed
   
   quantity: number;
-  avgPricePlatform: number; // CMP Compra
+  
+  // Platform Currency Metrics (e.g. What you see in Broker)
+  avgPricePlatform: number; 
+  
+  // EUR Metrics (Base currency of the App)
   avgFxRate: number;
   avgPriceEur: number;
-  
   totalCostEur: number;
-  totalCostUsd: number;
-  
-  currentPriceOrigin: number; // Live data
-  currentFxRateToEur: number; // Live data
-  
   currentValueEur: number;
-  currentValueUsd: number;
-  
   unrealizedPnLEur: number;
   unrealizedPnLPct: number;
-  
-  realizedPnLEur: number; // From closed transactions
+  realizedPnLEur: number; 
+
+  // Origin Currency Metrics (Real asset performance excluding FX impact)
+  totalCostOrigin: number;      // Calculated by reverse-engineering FX at time of purchase if needed
+  currentPriceOrigin: number;   // Live data from sheet
+  currentValueOrigin: number;
+  unrealizedPnLOrigin: number;
+
+  currentFxRateToEur: number; // Live data
 }
 
 export interface DashboardMetrics {

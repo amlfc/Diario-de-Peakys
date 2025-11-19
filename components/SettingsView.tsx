@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect } from 'react';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -31,7 +32,7 @@ const SettingsView: React.FC = () => {
     localStorage.setItem('PRICE_FEED_URL', priceFeedUrl.trim());
     setTimeout(() => {
         setIsSavingUrl(false);
-        alert('URL de precios guardada. Los precios se actualizarán en el Dashboard.');
+        alert('URL de precios guardada. Los precios y divisas se actualizarán en el Dashboard.');
         window.location.reload();
     }, 500);
   };
@@ -54,18 +55,13 @@ const SettingsView: React.FC = () => {
   const handleClear = async () => {
     if (confirm('¿Estás seguro de que quieres borrar TODA la base de datos? Quedará completamente vacía (sin carteras, ni activos, ni transacciones).')) {
         try {
-            // Usamos delete() en lugar de limpiar tabla por tabla para asegurar un borrado completo y limpio
-            // Esto elimina el archivo de la base de datos local por completo.
             await (db as any).delete();
-            
-            // Establecemos la bandera para EVITAR que se carguen los datos de ejemplo al recargar
             localStorage.setItem('DATA_SEEDED', 'true');
-            
             alert('Base de datos vaciada correctamente.');
             window.location.reload();
         } catch (error) {
             console.error("Error al vaciar DB:", error);
-            alert("Ocurrió un error al borrar la base de datos. Por favor revisa la consola o recarga la página.");
+            alert("Ocurrió un error al borrar la base de datos.");
         }
     }
   };
@@ -84,8 +80,6 @@ const SettingsView: React.FC = () => {
     } else {
       alert(`Error: ${result.error}`);
     }
-    
-    // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -140,21 +134,40 @@ const SettingsView: React.FC = () => {
       <div className="grid grid-cols-1 gap-6">
 
         {/* PRICE FEED CONFIGURATION */}
-        <Card title="Fuente de Datos de Precios (Google Sheets)">
+        <Card title="Fuente de Datos (Google Sheets)">
            <div className="space-y-4">
               <p className="text-sm text-slate-400">
-                Conecta una hoja de Google Sheets para tener precios actualizados automáticamente.
+                Conecta una hoja de Google Sheets para actualizar precios y divisas en tiempo real.
               </p>
               
               <div className="bg-slate-900/50 p-4 rounded border border-slate-700 text-sm space-y-2">
-                 <p className="font-medium text-slate-300">Instrucciones:</p>
-                 <ol className="list-decimal list-inside text-slate-500 space-y-1">
-                   <li>Crea un Sheet con dos columnas: <strong>A (Ticker)</strong> y <strong>B (Precio)</strong>.</li>
-                   <li>En la columna B usa fórmulas como <code>=GOOGLEFINANCE(A2)</code>.</li>
-                   <li>Haz clic en el botón <strong>Compartir</strong> (arriba a la derecha).</li>
-                   <li>Cambia el acceso a <strong>"Cualquier persona con el enlace"</strong>.</li>
-                   <li>Copia el enlace y pégalo aquí abajo.</li>
-                 </ol>
+                 <p className="font-medium text-slate-300">Estructura del Google Sheet:</p>
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-left text-xs text-slate-400">
+                     <thead className="border-b border-slate-600">
+                       <tr>
+                         <th className="py-1">A (Ticker)</th>
+                         <th className="py-1">B (Precio)</th>
+                         <th className="py-1 text-blue-400">C (Moneda) *Nuevo</th>
+                       </tr>
+                     </thead>
+                     <tbody>
+                       <tr>
+                         <td className="py-1">AAPL</td>
+                         <td className="py-1">=GOOGLEFINANCE("AAPL")</td>
+                         <td className="py-1 font-mono">USD</td>
+                       </tr>
+                       <tr>
+                         <td className="py-1">USDEUR</td>
+                         <td className="py-1">=GOOGLEFINANCE("CURRENCY:USDEUR")</td>
+                         <td className="py-1"></td>
+                       </tr>
+                     </tbody>
+                   </table>
+                 </div>
+                 <p className="text-xs mt-2 text-slate-500">
+                   * La columna C le dice a la app la moneda real del activo (ej. USD para Apple) para calcular su valor original.
+                 </p>
               </div>
 
               <div className="flex gap-2 mt-2">
@@ -181,8 +194,6 @@ const SettingsView: React.FC = () => {
           <div className="space-y-4">
             <p className="text-sm text-slate-400">
               Gestiona tus datos masivamente.
-              <br />
-              <span className="text-xs italic text-slate-500">Columnas esperadas en Importar: Fecha, Cartera, Tipo, Ticker, Nombre Activo, Cantidad, Precio, Comisión, Divisa, Tipo Cambio.</span>
             </p>
             
             <div className="flex flex-col sm:flex-row items-center gap-4">
@@ -203,7 +214,7 @@ const SettingsView: React.FC = () => {
                    <span>Procesando...</span>
                  ) : (
                    <>
-                     <Icons.Add size={18} className="rotate-45" /> {/* Mimic upload icon */}
+                     <Icons.Add size={18} className="rotate-45" />
                      Subir Excel Transacciones
                    </>
                  )}
@@ -213,7 +224,7 @@ const SettingsView: React.FC = () => {
                   onClick={handleExport}
                   className="w-full sm:w-auto flex-1 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors"
                >
-                  <Icons.Arrow size={18} className="rotate-90" /> {/* Down arrow */}
+                  <Icons.Arrow size={18} className="rotate-90" />
                   Descargar Excel Transacciones
                </button>
             </div>
@@ -224,10 +235,6 @@ const SettingsView: React.FC = () => {
           {/* PORTFOLIO MANAGEMENT */}
           <Card title="Gestión de Carteras">
              <div className="space-y-4">
-                <p className="text-sm text-slate-400 mb-2">
-                  Crea o elimina carteras.
-                </p>
-
                 <form onSubmit={handleAddPortfolio} className="flex gap-2 mb-4">
                   <input 
                     type="text" 
@@ -257,10 +264,6 @@ const SettingsView: React.FC = () => {
           {/* ASSET TYPE MANAGEMENT */}
           <Card title="Gestión de Tipos de Activo">
              <div className="space-y-4">
-                <p className="text-sm text-slate-400 mb-2">
-                  Define las categorías para clasificar tus activos.
-                </p>
-
                 <form onSubmit={handleAddAssetType} className="flex gap-2 mb-4">
                   <input 
                     type="text" 
@@ -290,10 +293,6 @@ const SettingsView: React.FC = () => {
           {/* DATA MANAGEMENT & RESET */}
           <Card title="Base de Datos" className="md:col-span-2">
             <div className="space-y-4">
-              <p className="text-sm text-slate-400">
-                Acciones destructivas sobre la base de datos local.
-              </p>
-              
               <div className="pt-2 space-y-3 md:flex md:space-y-0 md:gap-4">
                 <button 
                   onClick={handleReset}

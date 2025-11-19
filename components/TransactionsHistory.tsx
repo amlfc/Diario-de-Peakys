@@ -47,14 +47,15 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
               <th className="px-6 py-3">Cartera</th>
               <th className="px-6 py-3 text-right">Cant.</th>
               <th className="px-6 py-3 text-right">Precio</th>
-              <th className="px-6 py-3 text-right">Total</th>
+              <th className="px-6 py-3 text-right">Comisión</th>
+              <th className="px-6 py-3 text-right">Total (Neto)</th>
               <th className="px-6 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700">
             {sortedTransactions.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
+                <td colSpan={9} className="px-6 py-8 text-center text-slate-500">
                   No hay transacciones registradas. 
                   <br/> Usa el botón "Nueva Operación" o importa un Excel desde Configuración.
                 </td>
@@ -62,7 +63,10 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
             ) : (
               sortedTransactions.map((tx) => {
                 const isBuy = tx.type === TransactionType.Buy;
-                const total = (tx.quantity * tx.price) + tx.commission;
+                // Total Cost for Buy = Price*Qty + Comm
+                // Total Proceeds for Sell = Price*Qty - Comm
+                const grossTotal = tx.quantity * tx.price;
+                const netTotal = isBuy ? (grossTotal + tx.commission) : (grossTotal - tx.commission);
                 
                 return (
                   <tr key={tx.id} className="hover:bg-slate-700/30 transition-colors group">
@@ -78,8 +82,11 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
                     <td className="px-6 py-4 text-right text-slate-300">
                         {formatCurrency(tx.price, tx.currencyPlatform)}
                     </td>
-                    <td className="px-6 py-4 text-right text-slate-300 font-medium">
-                        {formatCurrency(total, tx.currencyPlatform)}
+                    <td className="px-6 py-4 text-right text-slate-400 text-xs">
+                        {tx.commission > 0 ? formatCurrency(tx.commission, tx.currencyPlatform) : '-'}
+                    </td>
+                    <td className={`px-6 py-4 text-right font-medium ${isBuy ? 'text-slate-200' : 'text-emerald-400'}`}>
+                        {formatCurrency(netTotal, tx.currencyPlatform)}
                     </td>
                     <td className="px-6 py-4 text-center">
                        <div className="flex items-center justify-center gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
@@ -88,7 +95,7 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
                            className="p-1.5 rounded bg-slate-700 text-blue-400 hover:bg-blue-900/30 transition-colors" 
                            title="Editar"
                          >
-                           <Icons.Settings size={14} /> {/* Using Settings icon as Edit pencil equivalent if pencil not avail, or just generic edit */}
+                           <Icons.Settings size={14} />
                          </button>
                          <button 
                            onClick={() => tx.id && handleDelete(tx.id)}

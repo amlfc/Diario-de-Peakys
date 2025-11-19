@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Position, Currency } from '../types';
 import { Icons } from './ui/Icons';
@@ -13,7 +14,7 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
   // Fetch available asset types for the dropdown
   const assetTypes = useLiveQuery(() => db.assetTypes.toArray()) || [];
 
-  const formatCurrency = (val: number, currency: Currency = Currency.EUR) => 
+  const formatCurrency = (val: number, currency: string = Currency.EUR) => 
     new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(val);
 
   const formatPct = (val: number) => 
@@ -22,16 +23,10 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
   // Handler to update asset type in DB
   const handleTypeChange = async (portfolio: string, ticker: string, newType: string) => {
     try {
-      // Update all transactions for this ticker in this portfolio
-      // Note: Since Asset Type is technically a property of the Transaction in this data model,
-      // changing it for the "Position" implies changing it for the underlying history to maintain consistency.
-      
-      // Filter logic: finding transactions with same portfolio and ticker
       await db.transactions
         .where('portfolio').equals(portfolio)
         .filter(tx => tx.ticker === ticker)
         .modify({ assetType: newType });
-        
     } catch (error) {
       console.error("Failed to update asset type", error);
       alert("Error al actualizar el tipo de activo");
@@ -48,37 +43,46 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
           <Icons.Positions size={18} /> Posiciones Abiertas
         </h3>
       </div>
-      <div className="overflow-x-auto pb-24 md:pb-0"> {/* Padding bottom for dropdown space in mobile */}
+      <div className="overflow-x-auto pb-24 md:pb-0">
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-slate-400 uppercase bg-slate-900/50">
             <tr>
-              <th className="px-6 py-3">Ticker</th>
-              <th className="px-6 py-3">Activo</th>
-              <th className="px-6 py-3">Tipo Activo</th> {/* Changed Header */}
-              <th className="px-6 py-3">Cartera</th>
-              <th className="px-6 py-3 text-right">Cant.</th>
-              <th className="px-6 py-3 text-right">Valor (EUR)</th>
-              <th className="px-6 py-3 text-right">G/P Latente (EUR)</th>
-              <th className="px-6 py-3 text-right">%</th>
+              <th className="px-4 py-3">Ticker</th>
+              <th className="px-4 py-3">Activo</th>
+              <th className="px-4 py-3">Tipo Activo</th>
+              <th className="px-4 py-3">Cartera</th>
+              <th className="px-4 py-3 text-center">Mon. Orig.</th>
+              <th className="px-4 py-3 text-right">Cant.</th>
+              
+              {/* Origin Currency Columns */}
+              <th className="px-4 py-3 text-right bg-slate-800/30 border-l border-slate-700">Valor (Orig)</th>
+              <th className="px-4 py-3 text-right bg-slate-800/30">G/P (Orig)</th>
+
+              {/* EUR Columns */}
+              <th className="px-4 py-3 text-right border-l border-slate-700">Valor (EUR)</th>
+              <th className="px-4 py-3 text-right">G/P Lat. (EUR)</th>
+              <th className="px-4 py-3 text-right">%</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700">
             {sortedPositions.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-6 py-8 text-center text-slate-500">
+                <td colSpan={11} className="px-6 py-8 text-center text-slate-500">
                   No hay posiciones abiertas para esta selección.
                 </td>
               </tr>
             ) : (
               sortedPositions.map((pos) => {
-                const isProfit = pos.unrealizedPnLEur >= 0;
+                const isProfitEur = pos.unrealizedPnLEur >= 0;
+                const isProfitOrigin = pos.unrealizedPnLOrigin >= 0;
+                const isDifferentCurrency = pos.currencyOrigin !== Currency.EUR;
+
                 return (
                   <tr key={`${pos.portfolio}-${pos.ticker}`} className="hover:bg-slate-700/30 transition-colors">
-                    <td className="px-6 py-4 font-medium text-white">{pos.ticker}</td>
-                    <td className="px-6 py-4 text-slate-300 max-w-[150px] truncate" title={pos.assetName}>{pos.assetName}</td>
+                    <td className="px-4 py-4 font-medium text-white">{pos.ticker}</td>
+                    <td className="px-4 py-4 text-slate-300 max-w-[150px] truncate" title={pos.assetName}>{pos.assetName}</td>
                     
-                    {/* Editable Asset Type Dropdown */}
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-4">
                       <select 
                         value={pos.assetType}
                         onChange={(e) => handleTypeChange(pos.portfolio, pos.ticker, e.target.value)}
@@ -90,15 +94,26 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
                       </select>
                     </td>
 
-                    <td className="px-6 py-4 text-slate-400">{pos.portfolio}</td>
-                    <td className="px-6 py-4 text-right text-slate-300">{pos.quantity.toFixed(2)}</td>
-                    <td className="px-6 py-4 text-right text-white font-bold">
+                    <td className="px-4 py-4 text-slate-400">{pos.portfolio}</td>
+                    <td className="px-4 py-4 text-center text-blue-300 font-mono text-xs">{pos.currencyOrigin}</td>
+                    <td className="px-4 py-4 text-right text-slate-300">{pos.quantity.toFixed(2)}</td>
+                    
+                    {/* Origin Columns */}
+                    <td className="px-4 py-4 text-right bg-slate-800/30 border-l border-slate-700 text-slate-300">
+                       {isDifferentCurrency ? formatCurrency(pos.currentValueOrigin, pos.currencyOrigin) : '-'}
+                    </td>
+                    <td className={`px-4 py-4 text-right bg-slate-800/30 font-medium ${isProfitOrigin ? 'text-emerald-400' : 'text-rose-400'}`}>
+                       {isDifferentCurrency ? formatCurrency(pos.unrealizedPnLOrigin, pos.currencyOrigin) : '-'}
+                    </td>
+
+                    {/* EUR Columns */}
+                    <td className="px-4 py-4 text-right border-l border-slate-700 text-white font-bold">
                       {formatCurrency(pos.currentValueEur, Currency.EUR)}
                     </td>
-                    <td className={`px-6 py-4 text-right font-medium ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <td className={`px-4 py-4 text-right font-medium ${isProfitEur ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {formatCurrency(pos.unrealizedPnLEur, Currency.EUR)}
                     </td>
-                    <td className={`px-6 py-4 text-right font-medium ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <td className={`px-4 py-4 text-right font-medium ${isProfitEur ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {formatPct(pos.unrealizedPnLPct)}
                     </td>
                   </tr>
