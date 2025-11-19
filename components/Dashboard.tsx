@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { DashboardMetrics, PortfolioOwner, Position } from '../types';
 import { StatCard, Card } from './ui/Card';
@@ -19,6 +20,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
     new Intl.NumberFormat('es-ES', { style: 'percent', minimumFractionDigits: 2 }).format(val);
 
   const isProfitable = metrics.totalReturnPct >= 0;
+  const totalEquity = metrics.totalValueEur + metrics.availableCashEur;
 
   // Prepare Data for Cost vs Value Chart
   // We sort by Current Value to show the most significant positions first
@@ -42,7 +44,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
         <div className="bg-slate-800 border border-slate-600 p-3 rounded shadow-xl text-sm">
           <p className="font-bold text-white mb-2">{label} <span className="text-slate-400 font-normal text-xs">({data.assetName})</span></p>
           <p className="text-slate-300">Coste: <span className="text-white font-mono">{formatCurrency(data.cost)}</span></p>
-          <p className="text-slate-300">Valor: <span className="text-white font-mono">{formatCurrency(data.value)}</span></p>
+          <p className="text-slate-300">Valor Actual: <span className="text-white font-mono">{formatCurrency(data.value)}</span></p>
           <div className="mt-2 pt-2 border-t border-slate-600 flex justify-between gap-4">
             <span className="text-slate-400">Rendimiento:</span>
             <span className={`font-bold font-mono ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -68,33 +70,41 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
 
       {/* KPI Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        {/* 1. Patrimonio Total (Net Worth) */}
         <StatCard 
-          title="Valor Total Cartera"
-          value={formatCurrency(metrics.totalValueEur)}
-          subValue={`${formatCurrency(metrics.unrealizedPnLEur)} (${formatPct(metrics.unrealizedPnLPct)})`}
-          trend={metrics.unrealizedPnLEur >= 0 ? 'up' : 'down'}
+          title="Patrimonio Total"
+          value={formatCurrency(totalEquity)}
+          subValue={`Retorno Global: ${formatPct(metrics.totalReturnPct)}`}
+          trend={isProfitable ? 'up' : 'down'}
           icon={<Icons.Wallet size={20} />}
         />
+
+        {/* 2. Liquidez (Cash) */}
         <StatCard 
-          title="Total Invertido"
-          value={formatCurrency(metrics.totalCostEur)}
-          subValue={`Aportado: ${formatCurrency(metrics.totalLiquidityAddedEur)}`}
+          title="Liquidez Disponible"
+          value={formatCurrency(metrics.availableCashEur)}
+          subValue={`Total Aportado: ${formatCurrency(metrics.totalLiquidityAddedEur)}`}
           trend="neutral"
-          icon={<Icons.Arrow size={20} />}
+          icon={<Icons.Liquidity size={20} />}
         />
+
+        {/* 3. Activos (Assets) */}
         <StatCard 
-          title="G/P Realizada"
+          title="Valor en Activos"
+          value={formatCurrency(metrics.totalValueEur)}
+          subValue={`G/P Latente: ${formatCurrency(metrics.unrealizedPnLEur)}`}
+          trend={metrics.unrealizedPnLEur >= 0 ? 'up' : 'down'}
+          icon={<Icons.Dashboard size={20} />}
+        />
+
+        {/* 4. Realized PnL */}
+        <StatCard 
+          title="G/P Cerrada"
           value={formatCurrency(metrics.realizedPnLEur)}
           subValue="Operaciones cerradas"
           trend={metrics.realizedPnLEur >= 0 ? 'up' : 'down'}
           icon={<Icons.Transactions size={20} />}
-        />
-        <StatCard 
-          title="Rentabilidad Total"
-          value={formatPct(metrics.totalReturnPct)}
-          subValue="Retorno Global Estimado"
-          trend={isProfitable ? 'up' : 'down'}
-          icon={<Icons.Up size={20} />}
         />
       </div>
 

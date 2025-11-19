@@ -322,6 +322,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   const activePositions: Position[] = [];
   const dashboard: DashboardMetrics = {
     totalValueEur: 0,
+    availableCashEur: 0,
     totalCostEur: 0,
     unrealizedPnLEur: 0,
     unrealizedPnLPct: 0,
@@ -376,12 +377,21 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   dashboard.totalLiquidityAddedEur = liquidity.reduce((acc, curr) => acc + curr.amountEur, 0);
   dashboard.unrealizedPnLPct = dashboard.totalCostEur > 0 ? (dashboard.unrealizedPnLEur / dashboard.totalCostEur) : 0;
   
+  // Calculate Available Cash: (Deposited + Gains) - (Assets Cost)
+  // Logic: You started with X. You added Gain Y. You spent Z on current assets. What's left is Cash.
+  // Note: realizedPnLEur is net. 
+  dashboard.availableCashEur = dashboard.totalLiquidityAddedEur + dashboard.realizedPnLEur - dashboard.totalCostEur;
+
+  // Total Return: (Current Equity - Deposited) / Deposited
+  // Current Equity = Assets Value + Available Cash
+  const currentEquity = dashboard.totalValueEur + dashboard.availableCashEur;
+  
   if (dashboard.totalLiquidityAddedEur > 0) {
-      const totalGain = (dashboard.totalValueEur + dashboard.realizedPnLEur) - dashboard.totalLiquidityAddedEur;
+      const totalGain = currentEquity - dashboard.totalLiquidityAddedEur;
       dashboard.totalReturnPct = totalGain / dashboard.totalLiquidityAddedEur;
   }
 
-  dashboard.projectedCloseEur = dashboard.totalValueEur + dashboard.realizedPnLEur;
+  dashboard.projectedCloseEur = currentEquity;
 
   return { activePositions, dashboard };
 };

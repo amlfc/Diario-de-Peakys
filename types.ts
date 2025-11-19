@@ -121,7 +121,8 @@ export interface Position {
 }
 
 export interface DashboardMetrics {
-  totalValueEur: number;
+  totalValueEur: number; // Only Assets
+  availableCashEur: number; // Liquidity
   totalCostEur: number;
   unrealizedPnLEur: number;
   unrealizedPnLPct: number;
