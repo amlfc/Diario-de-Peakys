@@ -1,6 +1,8 @@
 import React from 'react';
 import { Position, Currency } from '../types';
 import { Icons } from './ui/Icons';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 
 interface PositionsTableProps {
   positions: Position[];
@@ -8,11 +10,33 @@ interface PositionsTableProps {
 
 const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
   
+  // Fetch available asset types for the dropdown
+  const assetTypes = useLiveQuery(() => db.assetTypes.toArray()) || [];
+
   const formatCurrency = (val: number, currency: Currency = Currency.EUR) => 
     new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(val);
 
   const formatPct = (val: number) => 
     new Intl.NumberFormat('es-ES', { style: 'percent', minimumFractionDigits: 2 }).format(val);
+
+  // Handler to update asset type in DB
+  const handleTypeChange = async (portfolio: string, ticker: string, newType: string) => {
+    try {
+      // Update all transactions for this ticker in this portfolio
+      // Note: Since Asset Type is technically a property of the Transaction in this data model,
+      // changing it for the "Position" implies changing it for the underlying history to maintain consistency.
+      
+      // Filter logic: finding transactions with same portfolio and ticker
+      await db.transactions
+        .where('portfolio').equals(portfolio)
+        .filter(tx => tx.ticker === ticker)
+        .modify({ assetType: newType });
+        
+    } catch (error) {
+      console.error("Failed to update asset type", error);
+      alert("Error al actualizar el tipo de activo");
+    }
+  };
 
   // Sort by value descending
   const sortedPositions = [...positions].sort((a, b) => b.currentValueEur - a.currentValueEur);
@@ -24,16 +48,15 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
           <Icons.Positions size={18} /> Posiciones Abiertas
         </h3>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto pb-24 md:pb-0"> {/* Padding bottom for dropdown space in mobile */}
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-slate-400 uppercase bg-slate-900/50">
             <tr>
               <th className="px-6 py-3">Ticker</th>
               <th className="px-6 py-3">Activo</th>
+              <th className="px-6 py-3">Tipo Activo</th> {/* Changed Header */}
               <th className="px-6 py-3">Cartera</th>
               <th className="px-6 py-3 text-right">Cant.</th>
-              <th className="px-6 py-3 text-right">CMP (Plat)</th>
-              <th className="px-6 py-3 text-right">Actual (Orig)</th>
               <th className="px-6 py-3 text-right">Valor (EUR)</th>
               <th className="px-6 py-3 text-right">G/P Latente (EUR)</th>
               <th className="px-6 py-3 text-right">%</th>
@@ -52,15 +75,23 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
                 return (
                   <tr key={`${pos.portfolio}-${pos.ticker}`} className="hover:bg-slate-700/30 transition-colors">
                     <td className="px-6 py-4 font-medium text-white">{pos.ticker}</td>
-                    <td className="px-6 py-4 text-slate-300 max-w-[200px] truncate" title={pos.assetName}>{pos.assetName}</td>
+                    <td className="px-6 py-4 text-slate-300 max-w-[150px] truncate" title={pos.assetName}>{pos.assetName}</td>
+                    
+                    {/* Editable Asset Type Dropdown */}
+                    <td className="px-6 py-4">
+                      <select 
+                        value={pos.assetType}
+                        onChange={(e) => handleTypeChange(pos.portfolio, pos.ticker, e.target.value)}
+                        className="bg-slate-900 border border-slate-600 text-slate-300 text-xs rounded px-2 py-1 focus:border-blue-500 outline-none max-w-[140px]"
+                      >
+                        {assetTypes.map(at => (
+                          <option key={at.id} value={at.name}>{at.name}</option>
+                        ))}
+                      </select>
+                    </td>
+
                     <td className="px-6 py-4 text-slate-400">{pos.portfolio}</td>
                     <td className="px-6 py-4 text-right text-slate-300">{pos.quantity.toFixed(2)}</td>
-                    <td className="px-6 py-4 text-right text-slate-400">
-                      {formatCurrency(pos.avgPricePlatform, pos.currencyPlatform)}
-                    </td>
-                    <td className="px-6 py-4 text-right text-white font-medium">
-                      {formatCurrency(pos.currentPriceOrigin, pos.currencyOrigin)}
-                    </td>
                     <td className="px-6 py-4 text-right text-white font-bold">
                       {formatCurrency(pos.currentValueEur, Currency.EUR)}
                     </td>
