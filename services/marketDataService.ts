@@ -254,32 +254,47 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
 
     if (tx.type === TransactionType.Buy) {
       const totalCostOldEur = pos.quantity * pos.avgPriceEur;
+      
+      // --- COST BASIS CALCULATION ---
+      // Net Cost = (Price * Qty) + Commission.
+      // This effectively RAISES the average price (Break Even Price).
+      const txCostOrigin = (tx.quantity * tx.price) + tx.commission;
+      const txCostEur = txCostOrigin * tx.fxRateToEur;
+      
       const newQuantity = pos.quantity + tx.quantity;
       
-      // --- Origin Cost Calculation ---
-      // Origin is strictly Platform Currency (the one user entered)
-      // So cost is simply quantity * price entered
-      const costNewOrigin = tx.quantity * tx.price;
-      pos.totalCostOrigin += costNewOrigin;
-      
+      // Add to running totals
+      const newTotalCostOrigin = pos.totalCostOrigin + txCostOrigin;
+      const newTotalCostEur = totalCostOldEur + txCostEur;
+
       if (newQuantity > 0) {
-          // Weighted Averages for EUR
-          const newAvgPricePlatform = ((pos.quantity * pos.avgPricePlatform) + (tx.quantity * tx.price)) / newQuantity;
-          // Weighted Average FX Rate
-          const totalFxWeighted = (pos.avgFxRate * totalCostOldEur) + (tx.fxRateToEur * (tx.quantity * tx.price));
-          const newAvgFx = totalFxWeighted / (totalCostOldEur + (tx.quantity * tx.price)) || tx.fxRateToEur;
-    
           pos.quantity = newQuantity;
-          pos.avgPricePlatform = newAvgPricePlatform;
-          pos.avgFxRate = newAvgFx;
-          pos.avgPriceEur = pos.avgPricePlatform * pos.avgFxRate;
+          
+          // Weighted Average Price in EUR (Inc Commission)
+          pos.avgPriceEur = newTotalCostEur / newQuantity;
+          
+          // Weighted Average Price in Origin (Inc Commission) -> Break Even Price
+          pos.avgPricePlatform = newTotalCostOrigin / newQuantity;
+          
+          pos.totalCostOrigin = newTotalCostOrigin;
+
+          // FX Weighted Average
+          // We assume the FX rate applies to the whole cost including commission
+          if (pos.totalCostOrigin > 0) {
+             pos.avgFxRate = newTotalCostEur / pos.totalCostOrigin;
+          } else {
+             pos.avgFxRate = tx.fxRateToEur;
+          }
       }
 
     } else if (tx.type === TransactionType.Sell) {
+      // Sell Proceeds = (Price * Qty) - Commission
       const sellValueEur = (tx.quantity * tx.price * tx.fxRateToEur) - (tx.commission * tx.fxRateToEur);
+      
+      // Cost of Goods Sold (Uses the Avg Price which includes Buy Commissions)
       const costOfSoldEur = tx.quantity * pos.avgPriceEur;
       
-      // Reduce Origin Cost proportionally
+      // Reduce Origin Cost proportionally to keep Avg Price constant
       if (pos.quantity > 0) {
           const proportion = tx.quantity / pos.quantity;
           pos.totalCostOrigin -= (pos.totalCostOrigin * proportion);
@@ -316,6 +331,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const rawFeedPrice = marketData?.price || 0;
     
     // Determine Price Feed Currency (defaults to platform if not found)
+    // NOTE: Feed currency (e.g. GBp) might differ from Platform/Origin currency (e.g. USD)
     const feedCurrency = marketData?.currency || pos.currencyPlatform;
 
     // Handle GBp / GBX (Pence) logic
@@ -337,7 +353,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
 
     if (!isClosed) {
       pos.currentValueEur = pos.quantity * priceToUseInEur;
-      pos.totalCostEur = pos.quantity * pos.avgPriceEur;
+      pos.totalCostEur = pos.quantity * pos.avgPriceEur; // Uses the commission-adjusted avg
       pos.unrealizedPnLEur = pos.currentValueEur - pos.totalCostEur;
       pos.unrealizedPnLPct = pos.totalCostEur !== 0 ? (pos.unrealizedPnLEur / pos.totalCostEur) : 0;
       
@@ -347,9 +363,12 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
       const fxOriginToEur = getFxRateToEur(pos.currencyOrigin);
       const safeFxOrigin = fxOriginToEur > 0 ? fxOriginToEur : 1;
       
-      pos.currentFxRateToEur = safeFxOrigin; // For reference
+      pos.currentFxRateToEur = safeFxOrigin; 
       pos.currentValueOrigin = pos.currentValueEur / safeFxOrigin;
-      pos.currentPriceOrigin = priceToUseInEur / safeFxOrigin;
+      
+      // Derived Price in Origin Currency
+      pos.currentPriceOrigin = priceToUseInEur / safeFxOrigin; 
+      
       pos.unrealizedPnLOrigin = pos.currentValueOrigin - pos.totalCostOrigin;
 
       activePositions.push(pos);
@@ -365,7 +384,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   dashboard.totalLiquidityAddedEur = liquidity.reduce((acc, curr) => acc + curr.amountEur, 0);
   dashboard.unrealizedPnLPct = dashboard.totalCostEur > 0 ? (dashboard.unrealizedPnLEur / dashboard.totalCostEur) : 0;
   
-  // Available Cash = (Liquidity + Realized Gains) - Cost of Active Assets
+  // Available Cash = (Liquidity + Realized Gains) - Cost of Active Assets (Inc Comm)
   dashboard.availableCashEur = dashboard.totalLiquidityAddedEur + dashboard.realizedPnLEur - dashboard.totalCostEur;
 
   // Total Return = (Total Equity - Total Deposited) / Total Deposited
