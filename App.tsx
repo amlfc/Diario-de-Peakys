@@ -8,7 +8,6 @@ import TransactionForm from './components/TransactionForm';
 import TransactionsHistory from './components/TransactionsHistory'; // New Import
 import Diversification from './components/Diversification';
 import FundamentalRefTable from './components/FundamentalRef';
-import MobileView from './components/MobileView';
 import SettingsView from './components/SettingsView';
 import LiquidityManager from './components/LiquidityManager';
 import { Icons } from './components/ui/Icons';
@@ -28,7 +27,7 @@ const SidebarItem = ({ icon: Icon, label, active, onClick }: any) => (
 );
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'positions' | 'transactions' | 'liquidity' | 'analysis' | 'mobile' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'positions' | 'transactions' | 'liquidity' | 'analysis' | 'settings'>('dashboard');
   const [selectedPortfolio, setSelectedPortfolio] = useState<PortfolioOwner | 'ALL'>('ALL');
   
   // Logic for showing form (Create or Edit)
@@ -110,7 +109,6 @@ const App: React.FC = () => {
           <div className="mb-6">
             <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Análisis</p>
             <SidebarItem icon={Icons.Diversification} label="Diversificación" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
-            <SidebarItem icon={Icons.Mobile} label="Vista Móvil" active={activeTab === 'mobile'} onClick={() => setActiveTab('mobile')} />
           </div>
         </div>
 
@@ -200,13 +198,6 @@ const App: React.FC = () => {
                   <Diversification positions={positions} metrics={metrics} selectedPortfolio={selectedPortfolio} />
                   <FundamentalRefTable />
                </div>
-            )}
-
-            {activeTab === 'mobile' && (
-              <div className="max-w-sm mx-auto space-y-6">
-                 <p className="text-center text-slate-500 text-sm mb-4">Vista simplificada para pantallas pequeñas</p>
-                 <MobileView metrics={metrics} portfolioName={selectedPortfolio === 'ALL' ? 'Global' : selectedPortfolio} />
-              </div>
             )}
 
             {activeTab === 'settings' && (

@@ -24,9 +24,9 @@ const MOCK_PRICES: Record<string, number> = {
 
 // STATIC FALLBACK RATES 
 const FALLBACK_FX_RATES: Record<string, number> = {
-  [Currency.USD]: 0.92, 
+  [Currency.USD]: 0.94, 
   [Currency.EUR]: 1.0,
-  [Currency.GBP]: 1.17,
+  [Currency.GBP]: 1.15,
   [Currency.CHF]: 1.06,
   [Currency.CAD]: 0.68,
   [Currency.JPY]: 0.006,
@@ -59,21 +59,32 @@ const getCsvUrl = (): string | null => {
 const parsePriceValue = (str: string): number => {
   if (!str) return 0;
   let val = str.toString().trim();
-  val = val.replace(/[€$£¥\s\u00A0]/g, '');
   
-  if (val.includes(',') && !val.includes('.')) {
-    val = val.replace(',', '.');
-  } else if (val.includes(',') && val.includes('.')) {
+  // Handle Google Sheets specific errors
+  if (val.startsWith('#') || val.toLowerCase().includes('loading') || val.toLowerCase().includes('error')) {
+    return 0;
+  }
+
+  val = val.replace(/[€$£¥\s\u00A0"']/g, ''); // Strip quotes and symbols
+  
+  // Handle European format (1.200,50) vs US format (1,200.50)
+  if (val.includes(',') && val.includes('.')) {
     if (val.indexOf('.') < val.indexOf(',')) {
+      // EU: 1.200,50 -> Remove dot, replace comma with dot
       val = val.replace(/\./g, '').replace(',', '.');
     } else {
+      // US: 1,200.50 -> Remove comma
       val = val.replace(/,/g, '');
     }
-  } else if (val.includes(',') && !val.includes('.')) {
+  } else if (val.includes(',')) {
+      // Only comma -> Decimal separator (standard for this app context)
       val = val.replace(',', '.');
   }
-  
-  return parseFloat(val);
+  // If only dot, usually standard decimal, unless it's a thousand separator for integer.
+  // We assume standard decimal if single dot.
+
+  const result = parseFloat(val);
+  return isNaN(result) ? 0 : result;
 };
 
 const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
@@ -91,32 +102,41 @@ const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
     const text = await response.text();
     
     const newMarketData: Record<string, MarketData> = {};
-    const lines = text.split(/\r?\n/);
+    const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
     
+    if (lines.length === 0) return {};
+
+    // DETECT DELIMITER: 
+    // If the header or first row contains semicolons, we assume European CSV format (where comma is decimal)
+    // Otherwise we fallback to comma.
+    const sampleLine = lines[0];
+    const delimiter = sampleLine.includes(';') ? ';' : ',';
+
     // Default Index: A=Ticker, B=Price, C=Currency
     let tickerIdx = 0;
     let priceIdx = 1;
     let currencyIdx = 2;
 
     lines.forEach((line, index) => {
-      if (!line.trim()) return;
-      const parts = line.split(/[,;]/);
-      
+      // Skip header if it looks like a header
       if (index === 0) {
-        const firstCell = parts[0].toLowerCase().replace(/['"]/g, '').trim();
-        if (firstCell.includes('ticker') || firstCell.includes('simbolo')) {
+        const lowerLine = line.toLowerCase();
+        if (lowerLine.includes('ticker') || lowerLine.includes('simbolo')) {
           return; 
         }
       }
 
+      // Robust Split using detected delimiter
+      const parts = line.split(delimiter);
+      
       if (parts.length >= 2) {
         const ticker = parts[tickerIdx].replace(/['"]/g, '').trim().toUpperCase();
-        const priceRaw = parts[priceIdx].replace(/['"]/g, '').trim();
-        const currencyRaw = parts.length > 2 ? parts[currencyIdx].replace(/['"]/g, '').trim().toUpperCase() : undefined;
+        const priceRaw = parts[priceIdx]; // Do not clean here, let parsePriceValue handle it
+        const currencyRaw = parts.length > 2 ? parts[currencyIdx].replace(/['"\s]/g, '').trim().toUpperCase() : undefined;
         
         const price = parsePriceValue(priceRaw);
 
-        if (ticker && !isNaN(price)) {
+        if (ticker && !isNaN(price) && price > 0) {
           newMarketData[ticker] = {
             price,
             currency: currencyRaw && currencyRaw.length === 3 ? currencyRaw : undefined
@@ -140,15 +160,23 @@ const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
 export const getFxRateToEur = (currency: string): number => {
   if (currency === Currency.EUR) return 1;
   const pairTicker = `${currency}EUR`; 
-  if (cachedMarketData[pairTicker]) return cachedMarketData[pairTicker].price;
+  
+  // CRITICAL FIX: Only use cached rate if it exists AND is greater than 0.
+  // If CSV parsing failed (returning 0), this must fall through to the fallback.
+  const liveRate = cachedMarketData[pairTicker]?.price;
+  
+  if (typeof liveRate === 'number' && liveRate > 0) {
+      return liveRate;
+  }
+  
+  // Log only in development or if debugging needed
+  console.warn(`FX Rate missing for ${currency} (Live value: ${liveRate}). Using fallback.`);
   return FALLBACK_FX_RATES[currency] || 1;
 };
 
 export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioOwner | 'ALL') => {
   
   // 1. Fetch Live Prices & Metadata FIRST
-  // We need to know the "Real Asset Currency" (e.g. USD) to calculate Cost Basis in USD 
-  // even if the user paid in EUR.
   await fetchPricesFromSheet(); 
 
   let transactions: Transaction[] = [];
@@ -186,13 +214,13 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
         avgFxRate: 0,
         avgPriceEur: 0,
         totalCostEur: 0,
-        totalCostOrigin: 0, // New Field
+        totalCostOrigin: 0, 
         currentPriceOrigin: 0,
         currentFxRateToEur: 0,
         currentValueEur: 0,
-        currentValueOrigin: 0, // New Field
+        currentValueOrigin: 0, 
         unrealizedPnLEur: 0,
-        unrealizedPnLOrigin: 0, // New Field
+        unrealizedPnLOrigin: 0, 
         unrealizedPnLPct: 0,
         realizedPnLEur: 0
       };
@@ -205,74 +233,26 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
 
     if (tx.type === TransactionType.Buy) {
       const totalCostOldEur = pos.quantity * pos.avgPriceEur;
-      const costNewEur = tx.quantity * tx.price * tx.fxRateToEur; 
+      // const costNewEur = tx.quantity * tx.price * tx.fxRateToEur; 
       const newQuantity = pos.quantity + tx.quantity;
       
       // --- Origin Cost Calculation ---
-      // Calculate how much "Origin Currency" was spent.
-      // If I bought AAPL (USD) using EUR: CostUSD = CostEUR / FX_Rate(USD->EUR) 
-      // Wait, tx.fxRateToEur represents "1 Unit of PlatCurr = X EUR".
-      // If Plat=EUR, fx=1. If Plat=USD, fx=0.92.
-      
       let costNewOrigin = 0;
-
+      
+      // If transaction currency matches origin (e.g. Buy US Stock with USD account)
       if (tx.currencyPlatform === pos.currencyOrigin) {
-          // Easy case: Bought USD asset with USD
           costNewOrigin = tx.quantity * tx.price;
-      } else if (tx.currencyPlatform === 'EUR' && pos.currencyOrigin !== 'EUR') {
-          // Hard case: Bought USD asset with EUR (Broker converted)
-          // We need the FX rate at that moment.
-          // We only have tx.fxRateToEur which is 1 (since Plat is EUR).
-          // We have to ESTIMATE the historical rate or assume the cost entered 
-          // implies a specific FX.
-          // Ideally, we'd reverse calculate, but without historical FX API, 
-          // we assume the user *wants* to see the EUR cost mostly.
-          // HOWEVER, for "G/P Origin", we need a base.
-          // Let's try to use the CURRENT FX rate as a proxy if we lack history, 
-          // OR if the user manually entered data...
-          
-          // BETTER APPROXIMATION:
-          // We assume standard cross rate. 
-          // If I paid 100 EUR for AAPL. AAPL is USD.
-          // To know how many USD I "spent", I need the EUR/USD rate at that time.
-          // If we don't have it, we can't be 100% accurate on "Origin P/L".
-          // FALLBACK: Use the Live FX Rate to "backcast" the cost? No, that changes cost basis daily.
-          
-          // REVISED STRATEGY: 
-          // If the platform currency differs from origin, strictly speaking we can't know the origin cost
-          // without a historical FX rate. 
-          // BUT, if the user provided `price` in EUR, we store it as EUR.
-          // To calculate `totalCostOrigin`, we will try to convert.
-          // Let's default `totalCostOrigin` to `totalCostEur` * `CurrentFX(EUR->Origin)`. 
-          // This effectively pegs the "Origin Cost" to the current exchange rate relative to EUR cost,
-          // which eliminates the FX effect on P/L *visually* for the user.
-          // It means: "What would this cost in USD *today*?". 
-          // Actually, the user wants: "How much did the stock move?".
-          // So: `Quantity * (CurrentPriceOrigin - AvgPriceOrigin)`.
-          // We need `AvgPriceOrigin`.
-          
-          // If Bought in EUR: Price = 100€. FX was 1.10 ($/€). Price in $ was 110.
-          // Since we don't know 1.10, we can't know it was 110.
-          
-          // COMPROMISE: If currencies mismatch and we lack data, `totalCostOrigin` = 0 or hidden.
-          // UNLESS: User enters data in Original Currency? 
-          // Most users putting "Trade Republic" data enter the EUR price.
-          // We will approximate using current FX rate to initialize, but it's imperfect.
-          
-          // LET'S STICK TO ROBUST LOGIC:
-          // If Plat == Origin: Use Price.
-          // If Plat != Origin: Use Price * (fxRateToEur / getFxRateToEur(Origin)). 
-          // This uses current rate to estimate historical relation if unknown.
-          // It's the best we can do without historical data.
-          
-          const currentFxOriginToEur = getFxRateToEur(pos.currencyOrigin);
-          // Cost in EUR / Rate(Origin->EUR) = Cost in Origin
-          costNewOrigin = (tx.quantity * tx.price * tx.fxRateToEur) / currentFxOriginToEur;
       } else {
-          // Plat=USD, Origin=EUR? Rare.
-          // Generic conversion via EUR base
+          // If Bought USD asset with EUR, we need to estimate the USD cost.
+          // We use the CURRENT FX rate to approximate the historical "Origin Cost" base
+          // because we don't have historical FX data. This keeps the "Origin P/L" sanity 
+          // aligned with the asset's price movement, filtering out FX noise approx.
           const currentFxOriginToEur = getFxRateToEur(pos.currencyOrigin);
-          costNewOrigin = (tx.quantity * tx.price * tx.fxRateToEur) / currentFxOriginToEur;
+          
+          // Safety: Prevent division by zero if FX is somehow 0 (though guarded above)
+          const safeFx = currentFxOriginToEur > 0 ? currentFxOriginToEur : 1;
+          
+          costNewOrigin = (tx.quantity * tx.price * tx.fxRateToEur) / safeFx;
       }
 
       pos.totalCostOrigin += costNewOrigin;
@@ -344,12 +324,14 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
       pos.unrealizedPnLEur = pos.currentValueEur - pos.totalCostEur;
       pos.unrealizedPnLPct = pos.totalCostEur !== 0 ? (pos.unrealizedPnLEur / pos.totalCostEur) : 0;
       
-      // Origin Metrics (The new Requirement)
+      // Origin Metrics
       pos.currentValueOrigin = pos.quantity * pos.currentPriceOrigin;
-      // If TotalCostOrigin was 0 (calculation issue), fallback to CostEur converted back
-      if (pos.totalCostOrigin === 0 && pos.totalCostEur > 0) {
+      
+      // Safety Check for Origin Cost
+      if (pos.totalCostOrigin <= 0 && pos.totalCostEur > 0 && pos.currentFxRateToEur > 0) {
            pos.totalCostOrigin = pos.totalCostEur / pos.currentFxRateToEur;
       }
+      
       pos.unrealizedPnLOrigin = pos.currentValueOrigin - pos.totalCostOrigin;
 
       activePositions.push(pos);
