@@ -132,9 +132,14 @@ const App: React.FC = () => {
             
             {activeTab === 'dashboard' && (
               <>
-                <Dashboard metrics={metrics} selectedPortfolio={selectedPortfolio} />
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                  <PositionsTable positions={positions.slice(0, 5)} /> {/* Top 5 preview */}
+                <Dashboard 
+                  metrics={metrics} 
+                  selectedPortfolio={selectedPortfolio} 
+                  positions={positions}
+                  onNavigate={(tab) => setActiveTab(tab as any)}
+                />
+                {/* Full width Diversification below chart */}
+                <div className="w-full">
                   <Diversification positions={positions} metrics={metrics} selectedPortfolio={selectedPortfolio} />
                 </div>
               </>

@@ -1,29 +1,59 @@
 import React from 'react';
-import { DashboardMetrics, PortfolioOwner } from '../types';
+import { DashboardMetrics, PortfolioOwner, Position } from '../types';
 import { StatCard, Card } from './ui/Card';
 import { Icons } from './ui/Icons';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, Legend, ReferenceLine } from 'recharts';
 
 interface DashboardProps {
   metrics: DashboardMetrics;
   selectedPortfolio: PortfolioOwner | 'ALL';
+  positions?: Position[];
+  onNavigate: (tab: string) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio }) => {
+const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, positions = [], onNavigate }) => {
   const formatCurrency = (val: number) => 
-    new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(val);
+    new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(val);
   
   const formatPct = (val: number) => 
     new Intl.NumberFormat('es-ES', { style: 'percent', minimumFractionDigits: 2 }).format(val);
 
   const isProfitable = metrics.totalReturnPct >= 0;
 
-  // Mock data for the chart based on current stats (usually this would be historical)
-  const chartData = [
-    { name: 'Coste', value: metrics.totalCostEur },
-    { name: 'Valor', value: metrics.totalValueEur },
-    { name: 'Cierre', value: metrics.projectedCloseEur },
-  ];
+  // Prepare Data for Cost vs Value Chart
+  // We sort by Current Value to show the most significant positions first
+  const performanceData = positions
+    .sort((a, b) => b.currentValueEur - a.currentValueEur)
+    .map(p => ({
+      ticker: p.ticker,
+      assetName: p.assetName,
+      cost: p.totalCostEur,
+      value: p.currentValueEur,
+      pnl: p.unrealizedPnLEur,
+      pct: p.unrealizedPnLPct
+    }));
+
+  // Custom Tooltip for the Chart
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      const isProfit = data.pnl >= 0;
+      return (
+        <div className="bg-slate-800 border border-slate-600 p-3 rounded shadow-xl text-sm">
+          <p className="font-bold text-white mb-2">{label} <span className="text-slate-400 font-normal text-xs">({data.assetName})</span></p>
+          <p className="text-slate-300">Coste: <span className="text-white font-mono">{formatCurrency(data.cost)}</span></p>
+          <p className="text-slate-300">Valor: <span className="text-white font-mono">{formatCurrency(data.value)}</span></p>
+          <div className="mt-2 pt-2 border-t border-slate-600 flex justify-between gap-4">
+            <span className="text-slate-400">Rendimiento:</span>
+            <span className={`font-bold font-mono ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {formatCurrency(data.pnl)} ({formatPct(data.pct)})
+            </span>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -31,7 +61,9 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio }) => 
         <h2 className="text-2xl font-bold text-white">
           Resumen: <span className="text-blue-400">{selectedPortfolio === 'ALL' ? 'Global' : selectedPortfolio}</span>
         </h2>
-        <span className="text-sm text-slate-400">Actualizado hace unos segundos</span>
+        <div className="flex gap-2">
+           <button onClick={() => onNavigate('positions')} className="text-sm text-blue-400 hover:underline">Ver Tabla Completa</button>
+        </div>
       </div>
 
       {/* KPI Grid */}
@@ -66,45 +98,55 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio }) => 
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart Section */}
-        <Card title="Distribución de Valor" className="lg:col-span-2">
-          <div className="h-64 w-full">
+      {/* Main Chart Section: Performance Cost vs Value */}
+      <Card title="Rendimiento por Posición (Coste vs Valor Actual)">
+        <div className="h-80 w-full">
+          {performanceData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" tick={{ fill: '#94a3b8' }} width={80} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f1f5f9' }}
-                  itemStyle={{ color: '#f1f5f9' }}
-                  formatter={(value: number) => formatCurrency(value)}
+              <BarChart 
+                data={performanceData} 
+                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                barGap={2}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                <XAxis 
+                  dataKey="ticker" 
+                  tick={{ fill: '#94a3b8', fontSize: 12 }} 
+                  axisLine={{ stroke: '#475569' }}
                 />
-                <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={30} />
+                <YAxis 
+                  tick={{ fill: '#94a3b8', fontSize: 12 }} 
+                  axisLine={{ stroke: '#475569' }}
+                  tickFormatter={(val) => `${val/1000}k`}
+                />
+                <Tooltip content={<CustomTooltip />} cursor={{fill: '#334155', opacity: 0.2}} />
+                <Legend verticalAlign="top" height={36} wrapperStyle={{ color: '#cbd5e1' }}/>
+                
+                {/* Cost Bar (Neutral Grey) */}
+                <Bar dataKey="cost" name="Coste Base" fill="#64748b" radius={[4, 4, 0, 0]} />
+                
+                {/* Value Bar (Colored by Profit/Loss) */}
+                <Bar dataKey="value" name="Valor Actual" radius={[4, 4, 0, 0]}>
+                  {performanceData.map((entry, index) => (
+                    <Cell 
+                      key={`cell-${index}`} 
+                      fill={entry.pnl >= 0 ? '#10b981' : '#ef4444'} // Emerald-500 vs Red-500
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </Card>
+          ) : (
+            <div className="h-full flex items-center justify-center text-slate-500 text-sm">
+              No hay posiciones abiertas para mostrar rendimiento.
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-center text-slate-500 mt-2">
+          * La barra de color indica el Valor Actual (Verde = Ganancia, Rojo = Pérdida). La barra gris indica el Coste.
+        </p>
+      </Card>
 
-        {/* Mini Stats / Actions */}
-        <Card title="Indicadores Clave">
-          <div className="space-y-4">
-             <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-700">
-                <p className="text-sm text-slate-400 mb-1">Cierre Total Estimado</p>
-                <p className="text-xl font-semibold text-emerald-400">{formatCurrency(metrics.projectedCloseEur)}</p>
-                <p className="text-xs text-slate-500 mt-1">Si se liquidara todo hoy</p>
-             </div>
-             
-             <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-700 flex justify-between items-center">
-               <div>
-                  <p className="text-sm text-slate-400">Posiciones Vivas</p>
-                  <p className="text-lg font-medium text-white">Ver detalle</p>
-               </div>
-               <Icons.Positions className="text-blue-400" size={24} />
-             </div>
-          </div>
-        </Card>
-      </div>
     </div>
   );
 };

@@ -67,41 +67,34 @@ const getValue = (row: any, aliases: string[]): any => {
   return undefined;
 };
 
-// 3. Robust Number Parsing (Handles 1.000,00 vs 1,000.00)
+// 3. Robust Number Parsing (Strict European: Comma is Decimal)
 const cleanNumber = (val: any): number => {
   if (typeof val === 'number') return val;
   if (!val) return 0;
 
   let str = val.toString().trim();
-  // Remove currency symbols and spaces
-  str = str.replace(/[€$£¥\s]/g, '');
+  // Remove currency symbols and spaces (including non-breaking spaces)
+  str = str.replace(/[€$£¥\s\u00A0]/g, '');
 
-  // Logic to detect format
-  if (str.includes(',') && str.includes('.')) {
-    // Mixed separators. The last one is usually the decimal.
-    const lastComma = str.lastIndexOf(',');
-    const lastDot = str.lastIndexOf('.');
-    
-    if (lastComma > lastDot) {
-      // 1.234,56 (EU) -> Remove dots, replace comma with dot
-      str = str.replace(/\./g, '').replace(',', '.');
-    } else {
-      // 1,234.56 (US) -> Remove commas
-      str = str.replace(/,/g, '');
-    }
-  } else if (str.includes(',')) {
-    // Only commas. Ambiguous: 1,234 (US 1234) or 12,34 (EU 12.34)
-    // Heuristic: Check matching regex for thousands
-    // But simplified: In finance exports here, comma usually means decimal if single.
-    // Let's assume standard EU input if Spanish app context, but try to be safe.
-    // We simply replace , with . to make it JS float.
-    str = str.replace(',', '.');
-  }
-  // If only dots (1.234), usually thousands in EU, but JS parse float handles 1.234 as 1.234. 
-  // If it looks like 1.000 (integer-ish), it might be 1000. 
-  // NOTE: This is the trickiest part. We'll assume standard JS float format if only dots, 
-  // UNLESS it has multiple dots (1.234.567).
+  // LOGIC: User specified Comma is Decimal Separator.
   
+  if (str.includes(',')) {
+    // If it has a comma, treat it as the decimal separator.
+    // 1. Remove ALL dots (thousands separators in EU format)
+    //    Example: "1.200,50" -> "1200,50"
+    str = str.replace(/\./g, '');
+    
+    // 2. Replace comma with dot for Javascript parsing
+    //    Example: "1200,50" -> "1200.50"
+    str = str.replace(',', '.');
+  } else if (str.includes('.')) {
+    // If it has dots but NO commas.
+    // In strict EU format, dots are thousands separators.
+    // Example: "1.200" (one thousand two hundred)
+    // Warning: This assumes no "US style" decimals exist without commas.
+    str = str.replace(/\./g, '');
+  }
+
   return parseFloat(str) || 0;
 };
 

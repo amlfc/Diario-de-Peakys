@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Position, DashboardMetrics, PortfolioOwner } from '../types';
 import { Card } from './ui/Card';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -13,6 +13,47 @@ interface DiversificationProps {
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#64748b', '#0ea5e9', '#d946ef'];
 
+// Helper component for the input to manage local state and save only on finish
+const TargetInput: React.FC<{ 
+  assetType: string; 
+  initialValue: number; 
+  onSave: (type: string, val: string) => void; 
+}> = ({ assetType, initialValue, onSave }) => {
+  const [val, setVal] = useState(initialValue.toString());
+
+  // Sync with DB updates if they happen externally
+  useEffect(() => {
+    setVal(initialValue.toString());
+  }, [initialValue]);
+
+  const handleBlur = () => {
+    if (val !== initialValue.toString()) {
+      onSave(assetType, val);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      (e.target as HTMLInputElement).blur();
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-center">
+      <input 
+        type="number" 
+        className="w-16 bg-slate-900 border border-slate-600 rounded px-1 py-0.5 text-center text-white focus:border-blue-500 outline-none text-xs"
+        value={val}
+        placeholder="0"
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+      />
+      <span className="ml-1 text-slate-500">%</span>
+    </div>
+  );
+};
+
 const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, selectedPortfolio }) => {
   
   // Get all available asset types to show complete list
@@ -20,7 +61,7 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
   
   // Get saved targets
   const targets = useLiveQuery(() => {
-    if (selectedPortfolio === 'ALL') return db.allocationTargets.toArray(); // Get all for aggregation logic if needed
+    if (selectedPortfolio === 'ALL') return db.allocationTargets.toArray();
     return db.allocationTargets.where('portfolio').equals(selectedPortfolio).toArray();
   }, [selectedPortfolio]);
 
@@ -138,10 +179,7 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
                 // Target Logic
                 let targetPct = 0;
                 if (selectedPortfolio === 'ALL') {
-                  // For ALL, we could average or sum. Currently showing 0 or aggregate if implemented. 
-                  // To keep it simple in ALL view:
-                  // We can try to sum the target amounts from individual portfolios if needed, 
-                  // but for now let's leave it blank or readonly.
+                  // For ALL, simplify to 0 or read if logic allows aggregation later
                 } else {
                   targetPct = targets?.find(t => t.assetType === type)?.targetPercentage || 0;
                 }
@@ -149,9 +187,6 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
                 const targetVal = referenceCapital * (targetPct / 100);
                 
                 // Color Logic
-                // Blue: < 90% of target
-                // Green: 90% - 110%
-                // Red: > 110%
                 let statusColor = 'text-slate-500';
                 let statusText = '-';
                 
@@ -176,16 +211,11 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
                     <td className="px-4 py-3 text-right text-slate-400">{currentPct.toFixed(1)}%</td>
                     <td className="px-4 py-3 text-center">
                       {selectedPortfolio !== 'ALL' ? (
-                        <div className="flex items-center justify-center">
-                          <input 
-                            type="number" 
-                            className="w-16 bg-slate-900 border border-slate-600 rounded px-1 py-0.5 text-center text-white focus:border-blue-500 outline-none text-xs"
-                            value={targetPct || ''}
-                            placeholder="0"
-                            onChange={(e) => handleTargetChange(type, e.target.value)}
-                          />
-                          <span className="ml-1 text-slate-500">%</span>
-                        </div>
+                        <TargetInput 
+                          assetType={type} 
+                          initialValue={targetPct} 
+                          onSave={handleTargetChange} 
+                        />
                       ) : (
                         <span className="text-slate-600">-</span>
                       )}

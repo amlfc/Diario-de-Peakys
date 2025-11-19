@@ -41,14 +41,40 @@ const getCsvUrl = (): string | null => {
   const rawUrl = localStorage.getItem('PRICE_FEED_URL');
   if (!rawUrl) return null;
 
-  // If it matches a standard Google Sheets share/edit URL, extract ID and convert to CSV export
-  // Matches patterns like: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit...
+  // Matches standard Google Sheets URL
   const match = rawUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
   if (match && match[1]) {
     return `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv`;
   }
 
   return rawUrl;
+};
+
+const parsePriceValue = (str: string): number => {
+  if (!str) return 0;
+  let val = str.toString().trim();
+  
+  // Remove symbols
+  val = val.replace(/[€$£¥\s\u00A0]/g, '');
+  
+  // Handle European format (1.200,50) vs US (1,200.50)
+  if (val.includes(',') && !val.includes('.')) {
+    // Only comma: assume decimal separator (EU)
+    val = val.replace(',', '.');
+  } else if (val.includes(',') && val.includes('.')) {
+    // Both present. If dot appears before comma (1.200,00), strip dot, replace comma.
+    if (val.indexOf('.') < val.indexOf(',')) {
+      val = val.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Comma before dot (1,200.00), strip comma.
+      val = val.replace(/,/g, '');
+    }
+  } else if (val.includes(',') && !val.includes('.')) {
+      // Ambiguous but usually if only comma exists in financial contexts it's decimal in EU
+      val = val.replace(',', '.');
+  }
+  
+  return parseFloat(val);
 };
 
 const fetchPricesFromSheet = async (): Promise<Record<string, number>> => {
@@ -68,47 +94,42 @@ const fetchPricesFromSheet = async (): Promise<Record<string, number>> => {
     
     const newPrices: Record<string, number> = {};
     
-    // Parse CSV (Assumes formatting: Ticker, Price)
-    // Handles common CSV issues like quotes or different delimiters
     const lines = text.split(/\r?\n/);
     
-    lines.forEach(line => {
+    // Try to identify headers to be safer, otherwise assume Col A = Ticker, Col B = Price
+    let tickerIdx = 0;
+    let priceIdx = 1;
+
+    // Process lines
+    lines.forEach((line, index) => {
       if (!line.trim()) return;
-      // Simple split by comma or semicolon
+      
+      // Simple CSV split
       const parts = line.split(/[,;]/);
-      if (parts.length >= 2) {
-        // Clean ticker name (remove quotes, whitespace)
-        const ticker = parts[0].replace(/['"]/g, '').trim().toUpperCase();
+      
+      // Heuristic to skip header row
+      if (index === 0) {
+        const firstCell = parts[0].toLowerCase().replace(/['"]/g, '').trim();
+        const secondCell = parts.length > 1 ? parts[1].toLowerCase().replace(/['"]/g, '').trim() : '';
         
-        // Parse price (handle "1.200,50" vs "1200.50")
-        let priceStr = parts[1].replace(/['"]/g, '').trim();
-        
-        // If the price string is something like "150.20" or "150,20"
-        // We try to detect if comma is used as decimal separator (European) or thousand separator
-        
-        let price = NaN;
-        
-        if (priceStr.includes(',') && !priceStr.includes('.')) {
-           // Only comma, likely European decimal: 120,50 -> 120.50
-           price = parseFloat(priceStr.replace(',', '.'));
-        } else if (priceStr.includes('.') && priceStr.includes(',')) {
-           // Mixed, assume dot is thousand, comma is decimal (1.200,50) or vice versa
-           // For Google Sheets export, it usually respects locale.
-           // Simplest reliable fallback: remove all non-numeric except last separator
-           // But let's stick to standard parsing first
-           price = parseFloat(priceStr.replace(/,/g, '')); // Remove commas, assume USD style
-           if (isNaN(price)) {
-             price = parseFloat(priceStr.replace(/\./g, '').replace(',', '.')); // Swap for EU style
-           }
-        } else {
-           price = parseFloat(priceStr);
+        if (firstCell.includes('ticker') || firstCell.includes('simbolo') || secondCell.includes('precio')) {
+          return; // Skip header
         }
+      }
+
+      if (parts.length >= 2) {
+        const ticker = parts[tickerIdx].replace(/['"]/g, '').trim().toUpperCase();
+        const priceRaw = parts[priceIdx].replace(/['"]/g, '').trim();
+        
+        const price = parsePriceValue(priceRaw);
 
         if (ticker && !isNaN(price)) {
           newPrices[ticker] = price;
         }
       }
     });
+
+    console.log("Live Prices Fetched:", Object.keys(newPrices).length, newPrices);
 
     cachedPrices = newPrices;
     lastFetchTime = Date.now();
@@ -127,9 +148,8 @@ export const getCurrentPrice = async (ticker: string): Promise<number> => {
     return livePrices[ticker];
   }
   
-  // Fallback to mock
-  const base = MOCK_PRICES[ticker] || 100;
-  // If no mock, return 0 or stable fallback to avoid NaN issues in UI
+  // Fallback to mock if not found in sheet
+  const base = MOCK_PRICES[ticker] || 0;
   return base; 
 };
 
@@ -217,7 +237,6 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   });
 
   // Pre-fetch live prices for all tickers in map
-  // This ensures we do one fetch call (due to caching) instead of many
   await fetchPricesFromSheet(); 
 
   // 2. Calculate Final Metrics with Live Data
@@ -237,8 +256,17 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   for (const pos of positionMap.values()) {
     const isClosed = pos.quantity <= 0.0001;
 
-    // Mock Live Data Update (Now async aware)
-    pos.currentPriceOrigin = await getCurrentPrice(pos.ticker);
+    // Live Data Update
+    const livePrice = await getCurrentPrice(pos.ticker);
+    
+    // IMPORTANT: If we have a live price, use it. If not (0), use the Average Buy Price 
+    // simply to show *something* in the chart instead of 0 value, but this hides PnL.
+    // Better approach: If 0, use 0, but UI handles it. 
+    // For this user request, let's stick to the requested price or keep previous logic.
+    // If livePrice is 0, it means fetch failed or ticker not in sheet. 
+    // We fallback to avgPricePlatform so the "Value" bar isn't empty in the dashboard initially.
+    pos.currentPriceOrigin = livePrice > 0 ? livePrice : pos.avgPricePlatform;
+    
     pos.currentFxRateToEur = getFxRateToEur(pos.currencyPlatform);
     
     if (!isClosed) {
