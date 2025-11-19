@@ -43,6 +43,7 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
             <tr>
               <th className="px-6 py-3">Fecha</th>
               <th className="px-6 py-3">Ticker</th>
+              <th className="px-6 py-3">Activo</th>
               <th className="px-6 py-3">Operación</th>
               <th className="px-6 py-3">Cartera</th>
               <th className="px-6 py-3 text-right">Cant.</th>
@@ -55,7 +56,7 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
           <tbody className="divide-y divide-slate-700">
             {sortedTransactions.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-6 py-8 text-center text-slate-500">
+                <td colSpan={10} className="px-6 py-8 text-center text-slate-500">
                   No hay transacciones registradas. 
                   <br/> Usa el botón "Nueva Operación" o importa un Excel desde Configuración.
                 </td>
@@ -72,6 +73,7 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
                   <tr key={tx.id} className="hover:bg-slate-700/30 transition-colors group">
                     <td className="px-6 py-4 text-slate-300 font-mono text-xs">{tx.date}</td>
                     <td className="px-6 py-4 font-medium text-white">{tx.ticker}</td>
+                    <td className="px-6 py-4 text-slate-300 max-w-[150px] truncate" title={tx.assetName}>{tx.assetName}</td>
                     <td className="px-6 py-4">
                       <span className={`text-xs font-medium px-2 py-1 rounded border ${isBuy ? 'bg-emerald-900/20 border-emerald-900/50 text-emerald-400' : 'bg-rose-900/20 border-rose-900/50 text-rose-400'}`}>
                         {tx.type}

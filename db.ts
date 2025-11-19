@@ -1,5 +1,7 @@
+
 import Dexie, { Table } from 'dexie';
 import { Transaction, LiquidityEvent, Portfolio, AssetTypeEntity, AssetAllocationTarget, DefaultPortfolios, DefaultAssetTypes, TransactionType, Currency } from './types';
+import { autoSyncService } from './services/autoSyncService';
 
 class PortfolioDatabase extends Dexie {
   transactions!: Table<Transaction>;
@@ -7,6 +9,7 @@ class PortfolioDatabase extends Dexie {
   portfolios!: Table<Portfolio>;
   assetTypes!: Table<AssetTypeEntity>;
   allocationTargets!: Table<AssetAllocationTarget>;
+  settings!: Table<any>; // Stores system settings like File Handles
 
   constructor() {
     super('PortfolioMasterDB');
@@ -16,25 +19,29 @@ class PortfolioDatabase extends Dexie {
       portfolios: '++id, name',
       assetTypes: '++id, name',
       allocationTargets: '++id, [portfolio+assetType]',
-      dividends: null // Deleting table in prev version
-    }).upgrade((tx: any) => {
-      // Migration logic if needed
+      dividends: null,
+      settings: 'key' // Simple Key-Value store
+    });
+
+    // --- HOOKS PARA AUTO-SYNC ---
+    // Cada vez que se modifica cualquier tabla, avisamos al servicio
+    // El servicio se encarga del "debounce" (esperar) para no saturar
+    const tables = [this.transactions, this.liquidity, this.portfolios, this.assetTypes, this.allocationTargets];
+    
+    tables.forEach(table => {
+      table.hook('creating', () => { autoSyncService.notifyChange(); });
+      table.hook('updating', () => { autoSyncService.notifyChange(); });
+      table.hook('deleting', () => { autoSyncService.notifyChange(); });
     });
   }
 }
 
 export const db = new PortfolioDatabase();
 
-// Seeder function to populate initial data if empty
 export const seedDatabase = async () => {
-  
-  // Check if we have already seeded
   const hasSeeded = localStorage.getItem('DATA_SEEDED');
-  if (hasSeeded === 'true') {
-    return;
-  }
+  if (hasSeeded === 'true') return;
 
-  // 1. Seed Portfolios if empty (Required for dropdowns)
   const portfolioCount = await db.portfolios.count();
   if (portfolioCount === 0) {
     await db.portfolios.bulkAdd([
@@ -45,7 +52,6 @@ export const seedDatabase = async () => {
     ]);
   }
 
-  // 2. Seed Asset Types if empty (Required for dropdowns)
   const assetTypeCount = await db.assetTypes.count();
   if (assetTypeCount === 0) {
     await db.assetTypes.bulkAdd([
@@ -60,9 +66,5 @@ export const seedDatabase = async () => {
     ]);
   }
 
-  // NOTE: Removed sample transactions and liquidity. 
-  // The app starts clean for the user.
-
-  // Mark as seeded so we don't try again
   localStorage.setItem('DATA_SEEDED', 'true');
 };

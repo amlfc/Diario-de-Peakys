@@ -3,6 +3,7 @@ import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { AssetType, Currency, PortfolioOwner, TransactionType, DefaultAssetTypes, Transaction } from '../types';
 import { Icons } from './ui/Icons';
+import { getFxRateToEur } from '../services/marketDataService';
 
 interface TransactionFormProps {
   onSuccess: () => void;
@@ -79,7 +80,20 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+
+    if (name === 'currencyPlatform') {
+      // Auto-fetch FX rate when currency changes
+      // getFxRateToEur handles logic: Returns 1 for EUR, or fetched/fallback rate for others
+      const newRate = getFxRateToEur(value);
+      setFormData({ 
+        ...formData, 
+        currencyPlatform: value as Currency, 
+        fxRateToEur: newRate.toString() 
+      });
+    } else {
+      setFormData({ ...formData, [name]: value });
+    }
   };
 
   const isEditing = !!initialData;
@@ -152,7 +166,15 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Tipo Cambio a EUR</label>
-          <input type="number" step="0.0001" name="fxRateToEur" value={formData.fxRateToEur} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none" />
+          <input 
+            type="number" 
+            step="0.0001" 
+            name="fxRateToEur" 
+            value={formData.fxRateToEur} 
+            onChange={handleChange} 
+            className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none"
+            title="Se calcula automáticamente si la lista de precios está cargada"
+          />
         </div>
 
         <div className="col-span-1 md:col-span-2 lg:col-span-3 flex justify-end gap-3 mt-4">
