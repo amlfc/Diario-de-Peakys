@@ -2,26 +2,30 @@ import { read, utils, writeFile } from 'xlsx';
 import { db } from '../db';
 import { Transaction, TransactionType, Currency, DefaultAssetTypes } from '../types';
 
-// Helper to robustly parse dates from Excel (Strings DD/MM/YYYY, JS Dates, or Excel Serials)
+// --- HELPER FUNCTIONS ---
+
+// 1. Robust Date Parsing
 const parseExcelDate = (raw: any): string => {
   if (!raw) return new Date().toISOString().split('T')[0];
 
-  // 1. If it's already a JS Date object
+  // JS Date Object
   if (raw instanceof Date) {
-    return raw.toISOString().split('T')[0];
+    // Adjust for timezone offset issues commonly found in Excel parsing
+    const offset = raw.getTimezoneOffset() * 60000;
+    return new Date(raw.getTime() - offset).toISOString().split('T')[0];
   }
 
-  // 2. If it's an Excel Serial Number (e.g., 45321)
+  // Excel Serial Number (e.g., 45321)
   if (typeof raw === 'number') {
+    // Excel base date adjustment
     return new Date(Math.round((raw - 25569) * 86400 * 1000)).toISOString().split('T')[0];
   }
 
-  // 3. If it's a string
+  // String parsing
   if (typeof raw === 'string') {
     const clean = raw.trim();
     
-    // Handle DD/MM/YYYY or DD-MM-YYYY (Common in Spain/Europe)
-    // Regex looks for 1 or 2 digits, separator, 1 or 2 digits, separator, 4 digits
+    // EU Format: DD/MM/YYYY or DD-MM-YYYY
     const euMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
     if (euMatch) {
       const day = euMatch[1].padStart(2, '0');
@@ -30,25 +34,82 @@ const parseExcelDate = (raw: any): string => {
       return `${year}-${month}-${day}`;
     }
 
-    // Handle YYYY-MM-DD (ISO)
+    // ISO Format: YYYY-MM-DD
     const isoMatch = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
     if (isoMatch) {
-      return clean.replace(/\//g, '-'); // Ensure dashes
+      return clean.replace(/\//g, '-');
     }
   }
 
-  // Fallback: Try standard Date constructor
-  const date = new Date(raw);
-  if (!isNaN(date.getTime())) {
-    return date.toISOString().split('T')[0];
-  }
+  // Fallback
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
 
-  console.warn("Date parsing failed for:", raw, "Using today.");
   return new Date().toISOString().split('T')[0];
 };
 
+// 2. Flexible Column Finder
+// Looks for a value in a row object checking multiple potential header names (case insensitive)
+const getValue = (row: any, aliases: string[]): any => {
+  const rowKeys = Object.keys(row);
+  const normalizedKeys = rowKeys.reduce((acc, k) => {
+    acc[k.toLowerCase().trim()] = k; // Map normalized key to original key
+    return acc;
+  }, {} as Record<string, string>);
+
+  for (const alias of aliases) {
+    const key = alias.toLowerCase().trim();
+    if (normalizedKeys[key]) {
+      const val = row[normalizedKeys[key]];
+      if (val !== undefined && val !== null && val !== '') return val;
+    }
+  }
+  return undefined;
+};
+
+// 3. Robust Number Parsing (Handles 1.000,00 vs 1,000.00)
+const cleanNumber = (val: any): number => {
+  if (typeof val === 'number') return val;
+  if (!val) return 0;
+
+  let str = val.toString().trim();
+  // Remove currency symbols and spaces
+  str = str.replace(/[€$£¥\s]/g, '');
+
+  // Logic to detect format
+  if (str.includes(',') && str.includes('.')) {
+    // Mixed separators. The last one is usually the decimal.
+    const lastComma = str.lastIndexOf(',');
+    const lastDot = str.lastIndexOf('.');
+    
+    if (lastComma > lastDot) {
+      // 1.234,56 (EU) -> Remove dots, replace comma with dot
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+      // 1,234.56 (US) -> Remove commas
+      str = str.replace(/,/g, '');
+    }
+  } else if (str.includes(',')) {
+    // Only commas. Ambiguous: 1,234 (US 1234) or 12,34 (EU 12.34)
+    // Heuristic: Check matching regex for thousands
+    // But simplified: In finance exports here, comma usually means decimal if single.
+    // Let's assume standard EU input if Spanish app context, but try to be safe.
+    // We simply replace , with . to make it JS float.
+    str = str.replace(',', '.');
+  }
+  // If only dots (1.234), usually thousands in EU, but JS parse float handles 1.234 as 1.234. 
+  // If it looks like 1.000 (integer-ish), it might be 1000. 
+  // NOTE: This is the trickiest part. We'll assume standard JS float format if only dots, 
+  // UNLESS it has multiple dots (1.234.567).
+  
+  return parseFloat(str) || 0;
+};
+
+
+// --- MAIN FUNCTIONS ---
+
 export const importTransactionsFromExcel = async (file: File): Promise<{ success: boolean; count: number; error?: string }> => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const reader = new FileReader();
 
     reader.onload = async (e) => {
@@ -56,127 +117,117 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
         const data = e.target?.result;
         const workbook = read(data, { type: 'binary', cellDates: true });
 
-        // Look for a sheet named "Historial Transacciones" or default to first sheet
-        const sheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('transac')) || workbook.SheetNames[0];
+        // Try to find relevant sheet
+        const sheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('transac') || n.toLowerCase().includes('historial')) || workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
 
-        // Convert to JSON
+        // Convert to JSON with raw values to handle parsing ourselves
         const rawRows: any[] = utils.sheet_to_json(sheet);
 
+        console.log("Excel Import Debug - Raw Rows found:", rawRows.length);
+        if (rawRows.length > 0) {
+           console.log("Excel Import Debug - First Row Keys:", Object.keys(rawRows[0]));
+        }
+
         if (rawRows.length === 0) {
-          resolve({ success: false, count: 0, error: 'La hoja está vacía o no tiene formato legible.' });
+          resolve({ success: false, count: 0, error: 'La hoja está vacía.' });
           return;
         }
 
         const transactionsToAdd: Transaction[] = [];
-
-        // Map rows to Transaction Interface
-        // Best effort matching based on the Excel description provided
+        
+        // Process Rows
         for (const row of rawRows) {
-          // Basic validation: Must have Ticker
-          const tickerRaw = row['Ticker'] || row['ticker'];
-          if (!tickerRaw) continue;
+          // Find Ticker (Mandatory)
+          const tickerRaw = getValue(row, ['Ticker', 'Simbolo', 'Symbol', 'Activo', 'Code']);
+          if (!tickerRaw) continue; // Skip empty rows
 
-          const typeStr = (row['Tipo'] || row['Type'] || '').toString().toLowerCase();
-          const type = typeStr.includes('venta') || typeStr.includes('sell') 
+          const ticker = tickerRaw.toString().toUpperCase().trim();
+
+          // Determine Type
+          const typeRaw = getValue(row, ['Tipo', 'Type', 'Operacion', 'Direction', 'B/S']);
+          const typeStr = (typeRaw || '').toString().toLowerCase();
+          const type = (typeStr.includes('venta') || typeStr.includes('sell') || typeStr === 's') 
             ? TransactionType.Sell 
             : TransactionType.Buy;
 
-          const dateRaw = row['Fecha'] || row['Date'];
-          const dateStr = parseExcelDate(dateRaw);
+          // Portfolio
+          const portfolioRaw = getValue(row, ['Cartera', 'Portfolio', 'Cuenta', 'Account', 'Nombre Cartera']);
+          const portfolio = (portfolioRaw || 'Alejandro').toString().trim();
 
-          const ticker = tickerRaw.toString().toUpperCase().trim();
-          const assetName = (row['Nombre Activo'] || row['Nombre'] || ticker).toString();
-          const portfolio = (row['Cartera'] || 'Alejandro').toString().trim();
-          
-          // Try to map Asset Type if column exists, else default
-          // Using DefaultAssetTypes constants to try and match common excel values
-          let assetType = DefaultAssetTypes.ActionLong; 
-          const rowAssetType = (row['Tipo Activo'] || '').toString().toLowerCase();
-          
-          if (rowAssetType) {
-             if (rowAssetType.includes('etf')) assetType = DefaultAssetTypes.ETFLong;
-             else if (rowAssetType.includes('swing')) assetType = DefaultAssetTypes.ActionSwing;
-             else if (rowAssetType.includes('penny')) assetType = DefaultAssetTypes.ActionPenny;
-             else if (rowAssetType.includes('cripto') || rowAssetType.includes('crypto')) assetType = DefaultAssetTypes.Crypto;
-             else if (rowAssetType.includes('fija') || rowAssetType.includes('renta')) assetType = DefaultAssetTypes.FixedIncome;
-             else if (rowAssetType.includes('materia') || rowAssetType.includes('commodity')) assetType = DefaultAssetTypes.Commodity;
-             // If row has a value but didn't match above, we might want to capture it if it matches a valid enum,
-             // but for safety we default to ActionLong or try to match exact string if user put it correctly.
-             // For now, keeping logic simple.
+          // Asset Name
+          const nameRaw = getValue(row, ['Nombre', 'Nombre Activo', 'Name', 'Description', 'Security Name']);
+          const assetName = nameRaw ? nameRaw.toString().trim() : ticker;
+
+          // Asset Type
+          const assetTypeRaw = getValue(row, ['Tipo Activo', 'Asset Type', 'Categoria', 'Category', 'Class']);
+          let assetType = DefaultAssetTypes.ActionLong;
+          if (assetTypeRaw) {
+            const atStr = assetTypeRaw.toString().toLowerCase();
+             if (atStr.includes('etf')) assetType = DefaultAssetTypes.ETFLong;
+             else if (atStr.includes('swing')) assetType = DefaultAssetTypes.ActionSwing;
+             else if (atStr.includes('penny')) assetType = DefaultAssetTypes.ActionPenny;
+             else if (atStr.includes('cripto') || atStr.includes('crypto')) assetType = DefaultAssetTypes.Crypto;
+             else if (atStr.includes('fija') || atStr.includes('renta')) assetType = DefaultAssetTypes.FixedIncome;
+             else if (atStr.includes('materia') || atStr.includes('commodity')) assetType = DefaultAssetTypes.Commodity;
           }
 
-          // Currency Parsing
-          const currStr = (row['Divisa Moneda Plataforma'] || row['Divisa'] || 'EUR').toString().toUpperCase().trim();
-          let currency = Currency.EUR;
-          if (currStr === 'USD') currency = Currency.USD;
-          else if (currStr === 'GBP') currency = Currency.GBP;
-          else if (currStr === 'CHF') currency = Currency.CHF;
-          else if (currStr === 'CAD') currency = Currency.CAD;
-          else if (currStr === 'JPY') currency = Currency.JPY;
-          else if (currStr === 'AUD') currency = Currency.AUD;
-          else if (currStr === 'HKD') currency = Currency.HKD;
-
-          // Clean numbers
-          const cleanNumber = (val: any) => {
-             if (typeof val === 'number') return val;
-             if (typeof val === 'string') return parseFloat(val.replace(',', '.'));
-             return 0;
-          };
+          // Values
+          const qtyRaw = getValue(row, ['Cantidad', 'Quantity', 'Units', 'Unidades', 'Shares', 'Títulos', 'Titulos']);
+          const priceRaw = getValue(row, ['Precio', 'Price', 'Coste', 'Cost', 'Amount']);
+          const commRaw = getValue(row, ['Comision', 'Commission', 'Fees', 'Fee']);
+          const fxRaw = getValue(row, ['Tipo Cambio', 'FX', 'FX Rate', 'Exchange Rate', 'Cambio']);
+          const currRaw = getValue(row, ['Divisa', 'Currency', 'Moneda', 'Curr']);
 
           const tx: Transaction = {
-            date: dateStr,
+            date: parseExcelDate(getValue(row, ['Fecha', 'Date', 'Time', 'Day'])),
             portfolio: portfolio,
             type: type,
             ticker: ticker,
             assetName: assetName,
             assetType: assetType,
-            quantity: cleanNumber(row['Cantidad'] || row['Quantity']),
-            price: cleanNumber(row['Precio'] || row['Price']),
-            commission: cleanNumber(row['Comisión'] || row['Commission']),
-            currencyPlatform: currency,
-            fxRateToEur: cleanNumber(row['Tipo Cambio'] || row['FX Rate'] || 1),
-            notes: (row['Notas'] || '').toString()
+            quantity: cleanNumber(qtyRaw),
+            price: cleanNumber(priceRaw),
+            commission: cleanNumber(commRaw),
+            currencyPlatform: (currRaw || 'EUR').toString().toUpperCase().trim() as Currency,
+            fxRateToEur: fxRaw ? cleanNumber(fxRaw) : 1,
+            notes: getValue(row, ['Notas', 'Notes', 'Comentarios']) || ''
           };
 
-          transactionsToAdd.push(tx);
+          // Validation: Ensure quantity and price are valid numbers to avoid ghost transactions
+          if (tx.quantity > 0 && tx.price >= 0) {
+            transactionsToAdd.push(tx);
+          }
         }
 
+        console.log("Excel Import Debug - Parsed Transactions:", transactionsToAdd.length);
+
         if (transactionsToAdd.length > 0) {
-          // Cast db to any to avoid TS error on transaction method
           await (db as any).transaction('rw', db.transactions, db.portfolios, db.assetTypes, async () => {
              await db.transactions.bulkAdd(transactionsToAdd);
              
-             // Auto-add unknown portfolios
+             // Update auxiliary tables (Portfolios, Asset Types)
              const distinctPortfolios = Array.from(new Set(transactionsToAdd.map(t => t.portfolio)));
              const existingPortfolios = await db.portfolios.toArray();
-             const existingPortfolioNames = existingPortfolios.map(p => p.name);
-             const newPortfolios = distinctPortfolios.filter(p => !existingPortfolioNames.includes(p)).map(name => ({ name }));
+             const newPortfolios = distinctPortfolios
+                .filter(p => !existingPortfolios.some(ep => ep.name === p))
+                .map(name => ({ name }));
+             
              if (newPortfolios.length > 0) await db.portfolios.bulkAdd(newPortfolios);
-
-             // Auto-add unknown asset types (simple check)
-             const distinctAssetTypes = Array.from(new Set(transactionsToAdd.map(t => t.assetType)));
-             const existingAssetTypes = await db.assetTypes.toArray();
-             const existingAssetTypeNames = existingAssetTypes.map(a => a.name);
-             const newAssetTypes = distinctAssetTypes.filter(a => !existingAssetTypeNames.includes(a)).map(name => ({ name }));
-             if (newAssetTypes.length > 0) await db.assetTypes.bulkAdd(newAssetTypes);
           });
           
           resolve({ success: true, count: transactionsToAdd.length });
         } else {
-          resolve({ success: false, count: 0, error: 'No se encontraron filas válidas. Revisa los nombres de las columnas (Ticker, Fecha, etc).' });
+          resolve({ success: false, count: 0, error: 'No se encontraron filas válidas. Revisa los nombres de las columnas (Ticker, Fecha, Cantidad, Precio).' });
         }
 
-      } catch (err) {
-        console.error(err);
-        resolve({ success: false, count: 0, error: 'Error al procesar el archivo. Asegúrate de que es un Excel válido.' });
+      } catch (err: any) {
+        console.error("Excel Import Error:", err);
+        resolve({ success: false, count: 0, error: 'Error procesando el archivo: ' + err.message });
       }
     };
 
-    reader.onerror = () => {
-      resolve({ success: false, count: 0, error: 'Error de lectura del archivo.' });
-    };
-
+    reader.onerror = () => resolve({ success: false, count: 0, error: 'Error de lectura de archivo.' });
     reader.readAsBinaryString(file);
   });
 };
@@ -190,7 +241,7 @@ export const exportTransactionsToExcel = async (): Promise<void> => {
       return;
     }
 
-    // Format data matching the structure we prefer for imports (and user's excel)
+    // Format for export
     const data = transactions.map(t => ({
       'Fecha': t.date,
       'Cartera': t.portfolio,
