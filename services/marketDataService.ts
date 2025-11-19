@@ -56,6 +56,29 @@ const getCsvUrl = (): string | null => {
   return rawUrl;
 };
 
+// Helper to properly split CSV lines respecting quotes
+// Example: "TICKER","48,49","USD" -> ['TICKER', '"48,49"', 'USD']
+const splitCsvLine = (text: string, delimiter: string): string[] => {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      current += char; // Keep quotes so parsePriceValue can strip them cleanly later
+    } else if (char === delimiter && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result;
+};
+
 const parsePriceValue = (str: string): number => {
   if (!str) return 0;
   let val = str.toString().trim();
@@ -65,7 +88,9 @@ const parsePriceValue = (str: string): number => {
     return 0;
   }
 
-  val = val.replace(/[€$£¥\s\u00A0"']/g, ''); // Strip quotes and symbols
+  // First strip quotes which are common in CSVs with commas: "1.200,50" -> 1.200,50
+  val = val.replace(/["']/g, '');
+  val = val.replace(/[€$£¥\s\u00A0]/g, ''); // Strip currency symbols and spaces
   
   // Handle European format (1.200,50) vs US format (1,200.50)
   if (val.includes(',') && val.includes('.')) {
@@ -107,10 +132,12 @@ const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
     if (lines.length === 0) return {};
 
     // DETECT DELIMITER: 
-    // If the header or first row contains semicolons, we assume European CSV format (where comma is decimal)
-    // Otherwise we fallback to comma.
-    const sampleLine = lines[0];
-    const delimiter = sampleLine.includes(';') ? ';' : ',';
+    // Scan first 5 lines. If we find semicolons, it's European CSV. Defaults to comma.
+    let delimiter = ',';
+    const sampleText = lines.slice(0, 5).join('');
+    if (sampleText.includes(';')) {
+        delimiter = ';';
+    }
 
     // Default Index: A=Ticker, B=Price, C=Currency
     let tickerIdx = 0;
@@ -126,12 +153,12 @@ const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
         }
       }
 
-      // Robust Split using detected delimiter
-      const parts = line.split(delimiter);
+      // Robust Split using custom logic
+      const parts = splitCsvLine(line, delimiter);
       
       if (parts.length >= 2) {
         const ticker = parts[tickerIdx].replace(/['"]/g, '').trim().toUpperCase();
-        const priceRaw = parts[priceIdx]; // Do not clean here, let parsePriceValue handle it
+        const priceRaw = parts[priceIdx]; 
         const currencyRaw = parts.length > 2 ? parts[currencyIdx].replace(/['"\s]/g, '').trim().toUpperCase() : undefined;
         
         const price = parsePriceValue(priceRaw);
@@ -145,7 +172,7 @@ const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
       }
     });
 
-    console.log("Live Data Fetched:", Object.keys(newMarketData).length);
+    console.log(`Live Data Fetched. Items: ${Object.keys(newMarketData).length}. Delimiter: '${delimiter}'`);
 
     cachedMarketData = newMarketData;
     lastFetchTime = Date.now();
@@ -161,16 +188,18 @@ export const getFxRateToEur = (currency: string): number => {
   if (currency === Currency.EUR) return 1;
   const pairTicker = `${currency}EUR`; 
   
-  // CRITICAL FIX: Only use cached rate if it exists AND is greater than 0.
-  // If CSV parsing failed (returning 0), this must fall through to the fallback.
+  // Only use cached rate if it exists AND is greater than 0 (valid).
   const liveRate = cachedMarketData[pairTicker]?.price;
   
   if (typeof liveRate === 'number' && liveRate > 0) {
       return liveRate;
   }
   
-  // Log only in development or if debugging needed
-  console.warn(`FX Rate missing for ${currency} (Live value: ${liveRate}). Using fallback.`);
+  // If missing or 0, fallback silent or warn
+  if (cachedMarketData[pairTicker] !== undefined && liveRate === 0) {
+      console.warn(`FX Rate for ${currency} came as 0 from Sheet. Using fallback.`);
+  }
+  
   return FALLBACK_FX_RATES[currency] || 1;
 };
 
