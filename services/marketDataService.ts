@@ -227,6 +227,13 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const key = `${tx.portfolio}-${tx.ticker}`;
     let pos = positionMap.get(key);
 
+    // SAFETY CHECK: Force FX Rate to 1 if Currency is EUR
+    // This fixes user error where they might have selected EUR but kept a 0.86 rate from previous input
+    let effectiveFxRate = tx.fxRateToEur;
+    if (tx.currencyPlatform === Currency.EUR) {
+        effectiveFxRate = 1;
+    }
+
     if (!pos) {
       pos = {
         ticker: tx.ticker,
@@ -259,7 +266,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
       // Net Cost = (Price * Qty) + Commission.
       // This effectively RAISES the average price (Break Even Price).
       const txCostOrigin = (tx.quantity * tx.price) + tx.commission;
-      const txCostEur = txCostOrigin * tx.fxRateToEur;
+      const txCostEur = txCostOrigin * effectiveFxRate;
       
       const newQuantity = pos.quantity + tx.quantity;
       
@@ -283,13 +290,14 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
           if (pos.totalCostOrigin > 0) {
              pos.avgFxRate = newTotalCostEur / pos.totalCostOrigin;
           } else {
-             pos.avgFxRate = tx.fxRateToEur;
+             pos.avgFxRate = effectiveFxRate;
           }
       }
 
     } else if (tx.type === TransactionType.Sell) {
       // Sell Proceeds = (Price * Qty) - Commission
-      const sellValueEur = (tx.quantity * tx.price * tx.fxRateToEur) - (tx.commission * tx.fxRateToEur);
+      // PnL = Sell Proceeds - Cost of Goods Sold
+      const sellValueEur = (tx.quantity * tx.price * effectiveFxRate) - (tx.commission * effectiveFxRate);
       
       // Cost of Goods Sold (Uses the Avg Price which includes Buy Commissions)
       const costOfSoldEur = tx.quantity * pos.avgPriceEur;
@@ -374,7 +382,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
       activePositions.push(pos);
 
       dashboard.totalValueEur += pos.currentValueEur;
-      dashboard.totalCostEur += pos.totalCostEur;
+      dashboard.totalCostEur += pos.totalCostEur; // Tracks Total Cost of ACTIVE assets
       dashboard.unrealizedPnLEur += pos.unrealizedPnLEur;
     }
     
@@ -384,8 +392,15 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   dashboard.totalLiquidityAddedEur = liquidity.reduce((acc, curr) => acc + curr.amountEur, 0);
   dashboard.unrealizedPnLPct = dashboard.totalCostEur > 0 ? (dashboard.unrealizedPnLEur / dashboard.totalCostEur) : 0;
   
-  // Available Cash = (Liquidity + Realized Gains) - Cost of Active Assets (Inc Comm)
-  dashboard.availableCashEur = dashboard.totalLiquidityAddedEur + dashboard.realizedPnLEur - dashboard.totalCostEur;
+  // --- LIQUIDITY FORMULA (Dinero Libre) ---
+  // EXPLICIT CALCULATION AS REQUESTED
+  // Formula: Dinero Libre = (Lo que ingresaste + Lo que ya ganaste) - Lo que tienes gastado en acciones
+  
+  const totalDeposited = dashboard.totalLiquidityAddedEur;
+  const totalRealizedGains = dashboard.realizedPnLEur; // This already subtracts commissions
+  const totalInvestedCost = dashboard.totalCostEur; // This includes commissions of active assets
+  
+  dashboard.availableCashEur = (totalDeposited + totalRealizedGains) - totalInvestedCost;
 
   // Total Return = (Total Equity - Total Deposited) / Total Deposited
   const currentEquity = dashboard.totalValueEur + dashboard.availableCashEur;
