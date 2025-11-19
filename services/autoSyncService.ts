@@ -38,8 +38,12 @@ class AutoSyncService {
   public onStatusChange: ((linked: boolean, lastSaved: Date | null, canRestore: boolean) => void) | null = null;
 
   constructor() {
-    // Intentar recuperar handle guardado al iniciar
-    this.restoreHandleFromDB();
+    // Constructor vacío para evitar problemas de dependencia circular con db.ts.
+    // La inicialización se realiza explícitamente a través del método init().
+  }
+
+  public async init() {
+    await this.restoreHandleFromDB();
   }
 
   // 0. Intentar recuperar el handle guardado en la sesión anterior
@@ -52,7 +56,7 @@ class AutoSyncService {
          this.updateStatus(false, true);
       }
     } catch (e) {
-      console.error("No se pudo restaurar el handle", e);
+      console.error("No se pudo restaurar el handle de sincronización", e);
     }
   }
 

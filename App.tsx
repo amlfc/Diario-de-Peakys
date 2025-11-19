@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { calculatePositionsAndMetrics } from './services/marketDataService';
 import { Position, DashboardMetrics, PortfolioOwner, Transaction } from './types';
 import { seedDatabase, db } from './db';
+import { autoSyncService } from './services/autoSyncService';
 import Dashboard from './components/Dashboard';
 import PositionsTable from './components/PositionsTable';
 import TransactionForm from './components/TransactionForm';
@@ -48,6 +50,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     seedDatabase();
+    autoSyncService.init(); // Initialize auto-sync service after DB is ready
   }, []);
 
   // Refresh data loop (simulating live market + reaction to DB changes)
