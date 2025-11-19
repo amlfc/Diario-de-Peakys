@@ -163,10 +163,11 @@ const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
         
         const price = parsePriceValue(priceRaw);
 
+        // Only add if price is valid (>0)
         if (ticker && !isNaN(price) && price > 0) {
           newMarketData[ticker] = {
             price,
-            currency: currencyRaw && currencyRaw.length === 3 ? currencyRaw : undefined
+            currency: currencyRaw && currencyRaw.length >= 3 ? currencyRaw : undefined
           };
         }
       }
@@ -226,10 +227,6 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const key = `${tx.portfolio}-${tx.ticker}`;
     let pos = positionMap.get(key);
 
-    // Determine Origin Currency from Cache (Feed) or Fallback to Transaction Platform Currency
-    const cachedMeta = cachedMarketData[tx.ticker];
-    const originCurrency = cachedMeta?.currency || tx.currencyPlatform;
-
     if (!pos) {
       pos = {
         ticker: tx.ticker,
@@ -237,7 +234,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
         portfolio: tx.portfolio,
         assetType: tx.assetType,
         currencyPlatform: tx.currencyPlatform,
-        currencyOrigin: originCurrency, // Set real origin
+        currencyOrigin: tx.currencyPlatform, // STRICTLY USE PLATFORM CURRENCY AS ORIGIN
         quantity: 0,
         avgPricePlatform: 0,
         avgFxRate: 0,
@@ -253,37 +250,16 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
         unrealizedPnLPct: 0,
         realizedPnLEur: 0
       };
-    } else {
-       // Ensure origin currency is up to date if feed loaded late
-       if (pos.currencyOrigin === pos.currencyPlatform && cachedMeta?.currency) {
-           pos.currencyOrigin = cachedMeta.currency;
-       }
     }
 
     if (tx.type === TransactionType.Buy) {
       const totalCostOldEur = pos.quantity * pos.avgPriceEur;
-      // const costNewEur = tx.quantity * tx.price * tx.fxRateToEur; 
       const newQuantity = pos.quantity + tx.quantity;
       
       // --- Origin Cost Calculation ---
-      let costNewOrigin = 0;
-      
-      // If transaction currency matches origin (e.g. Buy US Stock with USD account)
-      if (tx.currencyPlatform === pos.currencyOrigin) {
-          costNewOrigin = tx.quantity * tx.price;
-      } else {
-          // If Bought USD asset with EUR, we need to estimate the USD cost.
-          // We use the CURRENT FX rate to approximate the historical "Origin Cost" base
-          // because we don't have historical FX data. This keeps the "Origin P/L" sanity 
-          // aligned with the asset's price movement, filtering out FX noise approx.
-          const currentFxOriginToEur = getFxRateToEur(pos.currencyOrigin);
-          
-          // Safety: Prevent division by zero if FX is somehow 0 (though guarded above)
-          const safeFx = currentFxOriginToEur > 0 ? currentFxOriginToEur : 1;
-          
-          costNewOrigin = (tx.quantity * tx.price * tx.fxRateToEur) / safeFx;
-      }
-
+      // Origin is strictly Platform Currency (the one user entered)
+      // So cost is simply quantity * price entered
+      const costNewOrigin = tx.quantity * tx.price;
       pos.totalCostOrigin += costNewOrigin;
       
       if (newQuantity > 0) {
@@ -337,31 +313,43 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
 
     // Get Live Data
     const marketData = cachedMarketData[pos.ticker];
-    const livePrice = marketData?.price || 0;
+    const rawFeedPrice = marketData?.price || 0;
     
-    // Fallback if feed didn't have currency but price was there
-    if (marketData?.currency) pos.currencyOrigin = marketData.currency;
+    // Determine Price Feed Currency (defaults to platform if not found)
+    const feedCurrency = marketData?.currency || pos.currencyPlatform;
 
-    pos.currentPriceOrigin = livePrice > 0 ? livePrice : pos.avgPricePlatform;
+    // Handle GBp / GBX (Pence) logic
+    let adjustedFeedPrice = rawFeedPrice;
+    if (feedCurrency === 'GBp' || feedCurrency === 'GBX') {
+        adjustedFeedPrice = rawFeedPrice / 100;
+    }
     
-    // Calculate Rates
-    pos.currentFxRateToEur = getFxRateToEur(pos.currencyOrigin);
-    
+    // FX Rate from FEED CURRENCY to EUR
+    // e.g. if Feed is GBp, we use GBP rate.
+    const effectiveFeedCurrency = (feedCurrency === 'GBp' || feedCurrency === 'GBX') ? 'GBP' : feedCurrency;
+    const fxFeedToEur = getFxRateToEur(effectiveFeedCurrency);
+
+    // Calculate EUR Value (Truth)
+    // If no live price, fallback to average platform price (and assumes platform currency for FX)
+    const priceToUseInEur = rawFeedPrice > 0 
+       ? adjustedFeedPrice * fxFeedToEur
+       : pos.avgPricePlatform * pos.avgFxRate;
+
     if (!isClosed) {
-      // EUR Metrics
-      pos.currentValueEur = pos.quantity * pos.currentPriceOrigin * pos.currentFxRateToEur;
+      pos.currentValueEur = pos.quantity * priceToUseInEur;
       pos.totalCostEur = pos.quantity * pos.avgPriceEur;
       pos.unrealizedPnLEur = pos.currentValueEur - pos.totalCostEur;
       pos.unrealizedPnLPct = pos.totalCostEur !== 0 ? (pos.unrealizedPnLEur / pos.totalCostEur) : 0;
       
-      // Origin Metrics
-      pos.currentValueOrigin = pos.quantity * pos.currentPriceOrigin;
+      // --- CROSS CURRENCY DISPLAY LOGIC ---
+      // We want to display values in 'pos.currencyOrigin' (The currency user entered)
+      // So we convert the Calculated EUR value BACK to Origin Currency.
+      const fxOriginToEur = getFxRateToEur(pos.currencyOrigin);
+      const safeFxOrigin = fxOriginToEur > 0 ? fxOriginToEur : 1;
       
-      // Safety Check for Origin Cost
-      if (pos.totalCostOrigin <= 0 && pos.totalCostEur > 0 && pos.currentFxRateToEur > 0) {
-           pos.totalCostOrigin = pos.totalCostEur / pos.currentFxRateToEur;
-      }
-      
+      pos.currentFxRateToEur = safeFxOrigin; // For reference
+      pos.currentValueOrigin = pos.currentValueEur / safeFxOrigin;
+      pos.currentPriceOrigin = priceToUseInEur / safeFxOrigin;
       pos.unrealizedPnLOrigin = pos.currentValueOrigin - pos.totalCostOrigin;
 
       activePositions.push(pos);
@@ -377,13 +365,10 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   dashboard.totalLiquidityAddedEur = liquidity.reduce((acc, curr) => acc + curr.amountEur, 0);
   dashboard.unrealizedPnLPct = dashboard.totalCostEur > 0 ? (dashboard.unrealizedPnLEur / dashboard.totalCostEur) : 0;
   
-  // Calculate Available Cash: (Deposited + Gains) - (Assets Cost)
-  // Logic: You started with X. You added Gain Y. You spent Z on current assets. What's left is Cash.
-  // Note: realizedPnLEur is net. 
+  // Available Cash = (Liquidity + Realized Gains) - Cost of Active Assets
   dashboard.availableCashEur = dashboard.totalLiquidityAddedEur + dashboard.realizedPnLEur - dashboard.totalCostEur;
 
-  // Total Return: (Current Equity - Deposited) / Deposited
-  // Current Equity = Assets Value + Available Cash
+  // Total Return = (Total Equity - Total Deposited) / Total Deposited
   const currentEquity = dashboard.totalValueEur + dashboard.availableCashEur;
   
   if (dashboard.totalLiquidityAddedEur > 0) {
