@@ -37,7 +37,12 @@ const LoginView: React.FC = () => {
         } else {
             const success = await login(username, password);
             if (!success) {
-                setError('Usuario o contraseña incorrectos, o error de conexión.');
+                // Mejora: Detectar si el fallo fue por conexión/DB o credenciales
+                if (api.hasError) {
+                    setError('Error de conexión con la Base de Datos. Revisa que las tablas existan en Hostinger.');
+                } else {
+                    setError('Usuario o contraseña incorrectos.');
+                }
             }
         }
     } catch (err) {
