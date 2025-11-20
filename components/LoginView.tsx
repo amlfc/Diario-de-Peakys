@@ -10,31 +10,40 @@ const LoginView: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || '');
   const [configMode, setConfigMode] = useState(!api.isConfigured());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
     if (!username || !password) {
         setError('Rellena todos los campos');
+        setIsLoading(false);
         return;
     }
 
-    if (isRegistering) {
-        const res = await register(username, password);
-        if (res.success) {
-            alert('Cuenta creada con éxito. Ahora puedes iniciar sesión.');
-            setIsRegistering(false);
+    try {
+        if (isRegistering) {
+            const res = await register(username, password);
+            if (res.success) {
+                alert('Cuenta creada con éxito. Ahora puedes iniciar sesión.');
+                setIsRegistering(false);
+            } else {
+                setError(res.message || 'Error al registrar');
+            }
         } else {
-            setError(res.message || 'Error al registrar');
+            const success = await login(username, password);
+            if (!success) {
+                setError('Usuario o contraseña incorrectos, o error de conexión.');
+            }
         }
-    } else {
-        const success = await login(username, password);
-        if (!success) {
-            setError('Usuario o contraseña incorrectos');
-        }
+    } catch (err) {
+        setError('Error inesperado de red. Intenta de nuevo.');
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -100,6 +109,7 @@ const LoginView: React.FC = () => {
                         onChange={e => setUsername(e.target.value)}
                         className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 pl-10 text-white focus:border-blue-500 outline-none transition-colors"
                         placeholder="Nombre de usuario"
+                        disabled={isLoading}
                     />
                 </div>
             </div>
@@ -113,6 +123,7 @@ const LoginView: React.FC = () => {
                         onChange={e => setPassword(e.target.value)}
                         className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 pl-10 text-white focus:border-blue-500 outline-none transition-colors"
                         placeholder="••••••••"
+                        disabled={isLoading}
                     />
                 </div>
             </div>
@@ -123,8 +134,13 @@ const LoginView: React.FC = () => {
                 </div>
             )}
 
-            <button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-3 rounded-lg font-bold shadow-lg shadow-blue-900/20 transition-all transform hover:scale-[1.02]">
-                {isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión'}
+            <button 
+                type="submit" 
+                disabled={isLoading}
+                className={`w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-3 rounded-lg font-bold shadow-lg shadow-blue-900/20 transition-all transform hover:scale-[1.02] flex justify-center items-center gap-2 ${isLoading ? 'opacity-70 cursor-wait' : ''}`}
+            >
+                {isLoading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>}
+                {isLoading ? 'Procesando...' : (isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión')}
             </button>
         </form>
 
@@ -134,6 +150,7 @@ const LoginView: React.FC = () => {
                 <button 
                     onClick={() => { setIsRegistering(!isRegistering); setError(''); }}
                     className="ml-2 text-blue-400 hover:text-blue-300 font-medium hover:underline"
+                    disabled={isLoading}
                 >
                     {isRegistering ? 'Inicia sesión' : 'Regístrate'}
                 </button>
@@ -141,7 +158,7 @@ const LoginView: React.FC = () => {
         </div>
         
         <div className="mt-4 text-center">
-            <button onClick={() => setConfigMode(true)} className="text-xs text-slate-600 hover:text-slate-400 flex items-center justify-center gap-1 w-full">
+            <button onClick={() => setConfigMode(true)} className="text-xs text-slate-600 hover:text-slate-400 flex items-center justify-center gap-1 w-full" disabled={isLoading}>
                 <Icons.Settings size={12} /> Configurar conexión API
             </button>
         </div>

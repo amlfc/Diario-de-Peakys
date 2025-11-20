@@ -1,48 +1,35 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { db } from '../db';
-import { User, Portfolio } from '../types';
 import { Icons } from './ui/Icons';
 import { Card } from './ui/Card';
 import { useLiveData } from '../hooks/useLiveData';
 
-interface UserPortfolioMap {
-    user: User;
-    portfolios: Portfolio[];
-}
-
 const AdminView: React.FC = () => {
-    const [data, setData] = useState<UserPortfolioMap[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-
-    // Fetch all data live
     const users = useLiveData(() => db.users.toArray()) || [];
     const portfolios = useLiveData(() => db.portfolios.toArray()) || [];
+    
+    const [updatingId, setUpdatingId] = useState<number | null>(null);
 
-    useEffect(() => {
-        if (users.length > 0) {
-            const mapped = users.map(u => {
-                return {
-                    user: u,
-                    portfolios: portfolios.filter(p => p.owner_id === u.id)
-                };
-            });
+    const handleAssignPortfolio = async (portfolioId: number, newOwnerIdStr: string) => {
+        if (!portfolioId) return;
+        
+        const newOwnerId = parseInt(newOwnerIdStr);
+        setUpdatingId(portfolioId);
+        try {
+            // If value is -1 (Sin Asignar), we set null (or handle backend logic for null)
+            // Depending on backend, null might need special handling, but assuming SQL handles NULL or 0.
+            // For safety, we send the ID or 0/null.
+            await db.portfolios.update(portfolioId, { owner_id: isNaN(newOwnerId) || newOwnerId === -1 ? undefined : newOwnerId });
             
-            // Also find orphan portfolios (legacy data or created before auth)
-            const orphanPortfolios = portfolios.filter(p => !p.owner_id);
-            if (orphanPortfolios.length > 0) {
-                mapped.push({
-                    user: { id: -1, username: 'SIN ASIGNAR (Legacy)', role: 'user' },
-                    portfolios: orphanPortfolios
-                });
-            }
-
-            setData(mapped);
-            setIsLoading(false);
+            // Force refresh implies db listener will trigger, but we can also alert
+        } catch (error) {
+            console.error("Error assigning portfolio", error);
+            alert("Error al asignar cartera. Revisa la consola.");
+        } finally {
+            setUpdatingId(null);
         }
-    }, [users, portfolios]);
-
-    if (isLoading) return <div className="p-8 text-center text-slate-500">Cargando datos de administración...</div>;
+    };
 
     return (
         <div className="space-y-6 animate-fade-in">
@@ -52,45 +39,80 @@ const AdminView: React.FC = () => {
                 </h2>
             </div>
 
-            <div className="grid grid-cols-1 gap-6">
-                <Card title="Usuarios y Carteras Asignadas">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* 1. LISTADO DE USUARIOS */}
+                <Card title="Usuarios Registrados">
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
                             <thead className="text-xs text-slate-400 uppercase bg-slate-900/50">
                                 <tr>
-                                    <th className="px-6 py-3">ID Usuario</th>
-                                    <th className="px-6 py-3">Usuario</th>
-                                    <th className="px-6 py-3">Rol</th>
-                                    <th className="px-6 py-3">Carteras (Portfolios)</th>
-                                    <th className="px-6 py-3 text-right">Total Carteras</th>
+                                    <th className="px-4 py-3">ID</th>
+                                    <th className="px-4 py-3">Usuario</th>
+                                    <th className="px-4 py-3">Rol</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700">
-                                {data.map((row) => (
-                                    <tr key={row.user.id} className="hover:bg-slate-700/30">
-                                        <td className="px-6 py-4 text-slate-500 font-mono text-xs">#{row.user.id}</td>
-                                        <td className="px-6 py-4 font-bold text-white">{row.user.username}</td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-medium ${row.user.role === 'admin' ? 'bg-purple-900/30 text-purple-400 border border-purple-900/50' : 'bg-slate-700 text-slate-300'}`}>
-                                                {row.user.role}
+                                {users.map(u => (
+                                    <tr key={u.id} className="hover:bg-slate-700/30">
+                                        <td className="px-4 py-3 text-slate-500 font-mono text-xs">#{u.id}</td>
+                                        <td className="px-4 py-3 text-white font-bold">{u.username}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`px-2 py-1 rounded text-xs font-medium ${u.role === 'admin' ? 'bg-purple-900/30 text-purple-400' : 'bg-slate-700 text-slate-300'}`}>
+                                                {u.role}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-slate-300">
-                                            {row.portfolios.length > 0 ? (
-                                                <div className="flex flex-wrap gap-1">
-                                                    {row.portfolios.map(p => (
-                                                        <span key={p.id} className="px-2 py-0.5 bg-blue-900/30 border border-blue-900/50 text-blue-300 rounded text-xs">
-                                                            {p.name}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <span className="text-slate-600 italic">Sin carteras</span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4 text-right font-mono text-slate-400">{row.portfolios.length}</td>
                                     </tr>
                                 ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+
+                {/* 2. ASIGNACIÓN DE CARTERAS */}
+                <Card title="Asignación de Carteras">
+                    <p className="text-xs text-slate-400 mb-4">Selecciona qué usuario es el dueño de cada cartera.</p>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-slate-400 uppercase bg-slate-900/50">
+                                <tr>
+                                    <th className="px-4 py-3">Cartera</th>
+                                    <th className="px-4 py-3">Propietario Actual</th>
+                                    <th className="px-4 py-3">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-700">
+                                {portfolios.map(p => {
+                                    const currentOwner = users.find(u => u.id === p.owner_id);
+                                    return (
+                                        <tr key={p.id} className="hover:bg-slate-700/30">
+                                            <td className="px-4 py-3 text-white font-medium">{p.name}</td>
+                                            <td className="px-4 py-3 text-slate-300">
+                                                {currentOwner ? (
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span> 
+                                                        {currentOwner.username}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-rose-400 text-xs italic">Sin Asignar</span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <select 
+                                                    className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-white outline-none focus:border-blue-500"
+                                                    value={p.owner_id || -1}
+                                                    onChange={(e) => handleAssignPortfolio(p.id!, e.target.value)}
+                                                    disabled={updatingId === p.id}
+                                                >
+                                                    <option value={-1}>-- Seleccionar --</option>
+                                                    {users.map(u => (
+                                                        <option key={u.id} value={u.id}>{u.username}</option>
+                                                    ))}
+                                                </select>
+                                                {updatingId === p.id && <span className="ml-2 text-xs text-blue-400">...</span>}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

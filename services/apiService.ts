@@ -63,11 +63,9 @@ export class ApiService {
   }
 
   async add(table: string, data: any) {
-    // Safety Valve: Do not attempt writes if reads are failing
-    if (this.hasError) {
-        throw new Error("Offline Mode: Cannot write data because connection is unstable.");
-    }
-
+    // REMOVED: Safety Valve used to block writes if reads failed. 
+    // We removed it so Registration (POST pky_users) works even if GET failed initially.
+    
     const url = this.getUrl();
     if (!url) throw new Error("API URL no configurada. Ve a Configuración.");
 
@@ -95,13 +93,12 @@ export class ApiService {
   }
 
   async update(table: string, id: number, data: any) {
-    if (this.hasError) throw new Error("Offline Mode: Write blocked.");
+    // Allow updates even if read had hiccups
     const payload = { ...data, id };
     return this.add(table, payload);
   }
 
   async delete(table: string, id: number) {
-    if (this.hasError) throw new Error("Offline Mode: Write blocked.");
     const url = this.getUrl();
     if (!url) throw new Error("API URL no configurada");
 
@@ -127,7 +124,6 @@ export class ApiService {
   }
 
   async clear(table: string) {
-    if (this.hasError) throw new Error("Offline Mode: Write blocked.");
     const url = this.getUrl();
     if (!url) throw new Error("API URL no configurada");
 
