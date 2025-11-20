@@ -1,4 +1,3 @@
-
 import { db } from '../db';
 import { User } from '../types';
 
@@ -47,7 +46,16 @@ class AuthService {
         return { success: true };
     } catch (error: any) {
         console.error("[Auth] Registration Error:", error);
-        return { success: false, message: 'Error de conexión con Base de Datos. Revisa la API.' };
+        
+        const msg = error.message || error.toString();
+        if (msg.includes('Invalid or missing table') || msg.includes('pky_users')) {
+             return { 
+               success: false, 
+               message: 'FALTA LA TABLA "pky_users". Ejecuta el código SQL en phpMyAdmin para arreglarlo.' 
+             };
+        }
+
+        return { success: false, message: 'Error de conexión: ' + msg };
     }
   }
 }
