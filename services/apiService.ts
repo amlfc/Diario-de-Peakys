@@ -1,22 +1,25 @@
 
+export const DEFAULT_API_URL = 'https://amlfc.es/api-peakys/index.php';
+
 export class ApiService {
   
   isConfigured(): boolean {
-    return !!localStorage.getItem('HOSTINGER_API_URL');
+    // Siempre devuelve true porque ahora tenemos un fallback por defecto
+    return true;
   }
 
   private getUrl() {
-    const url = localStorage.getItem('HOSTINGER_API_URL');
-    if (!url) return null;
-    return url;
+    const stored = localStorage.getItem('HOSTINGER_API_URL');
+    // Si el usuario ha guardado una personalizada, usa esa. Si no, usa la oficial por defecto.
+    if (stored && stored.trim() !== '') {
+        return stored;
+    }
+    return DEFAULT_API_URL;
   }
 
   async get(table: string) {
     const url = this.getUrl();
-    if (!url) {
-        // Silent return to avoid UI crashes before config
-        return []; 
-    }
+    
     try {
       const res = await fetch(`${url}?table=${table}`);
       if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
@@ -41,7 +44,6 @@ export class ApiService {
 
   async add(table: string, data: any) {
     const url = this.getUrl();
-    if (!url) throw new Error("API URL no configurada. Ve a Configuración.");
 
     try {
       const res = await fetch(`${url}?table=${table}`, {
@@ -72,7 +74,6 @@ export class ApiService {
 
   async delete(table: string, id: number) {
     const url = this.getUrl();
-    if (!url) throw new Error("API URL no configurada");
 
     try {
         const res = await fetch(`${url}?table=${table}&id=${id}`, {
@@ -96,7 +97,6 @@ export class ApiService {
 
   async clear(table: string) {
     const url = this.getUrl();
-    if (!url) throw new Error("API URL no configurada");
 
     try {
         const res = await fetch(`${url}?table=${table}&confirm=all`, {

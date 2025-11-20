@@ -36,6 +36,22 @@ export interface AnalysisMetrics {
   worstTrade: ClosedTrade | null;
 }
 
+// --- DATA SANITIZATION HELPERS ---
+const toNumber = (val: any): number => {
+  if (typeof val === 'number' && !isNaN(val)) return val;
+  if (val === null || val === undefined || val === '') return 0;
+  
+  const str = String(val).trim();
+  let normalized = str;
+  // Handle European format (comma decimal) if no dot is present
+  if (str.includes(',') && !str.includes('.')) {
+    normalized = str.replace(',', '.');
+  }
+  
+  const parsed = parseFloat(normalized);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 // --- CORE LOGIC: Replay History ---
 export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[] => {
   // 1. Sort chronologically
@@ -46,7 +62,16 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
   const inventory = new Map<string, { quantity: number, totalCostEur: number }>();
   const closedTrades: ClosedTrade[] = [];
 
-  sortedTxs.forEach((tx, index) => {
+  sortedTxs.forEach((rawTx, index) => {
+    // SANITIZE INPUTS to prevent NaN in Analysis
+    const tx = {
+        ...rawTx,
+        quantity: toNumber(rawTx.quantity),
+        price: toNumber(rawTx.price),
+        commission: toNumber(rawTx.commission),
+        fxRateToEur: toNumber(rawTx.fxRateToEur) || 1
+    };
+
     const key = `${tx.portfolio}-${tx.ticker}`;
     const currentPos = inventory.get(key) || { quantity: 0, totalCostEur: 0 };
 
@@ -69,7 +94,7 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
       
       // We use Weighted Average Cost logic as per the main app.
       // Avg Cost per Share = TotalCost / TotalQty
-      const avgCostPerShareEur = currentPos.quantity > 0 ? (currentPos.totalCostEur / currentPos.quantity) : 0;
+      const avgCostPerShareEur = currentPos.quantity > 0.000001 ? (currentPos.totalCostEur / currentPos.quantity) : 0;
       
       const sellRevenueGrossEur = (tx.price * tx.quantity * fxRate);
       const sellCommEur = (tx.commission * fxRate);
@@ -94,7 +119,7 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
         portfolio: tx.portfolio,
         type: currentPos.quantity - tx.quantity < 0.001 ? 'Venta Total' : 'Venta Parcial',
         quantitySold: tx.quantity,
-        sellPriceEur: (sellRevenueNetEur / tx.quantity), // Net effective price per share
+        sellPriceEur: tx.quantity > 0 ? (sellRevenueNetEur / tx.quantity) : 0, // Net effective price per share
         costBasisEur: avgCostPerShareEur,
         grossRevenueEur: sellRevenueNetEur,
         grossCostEur: costOfSoldEur,
@@ -138,6 +163,8 @@ export const calculateAnalysisMetrics = (trades: ClosedTrade[]): AnalysisMetrics
      profitFactor,
      avgWinEur: winners.length > 0 ? (grossProfit / winners.length) : 0,
      avgLossEur: losers.length > 0 ? (grossLoss / losers.length) : 0, // Positive number representing loss magnitude
+     
+     // Fix: Ensure we have trades before reducing to avoid crash
      bestTrade: winners.length > 0 ? winners.reduce((prev, current) => (prev.netPnLEur > current.netPnLEur) ? prev : current) : null,
      worstTrade: losers.length > 0 ? losers.reduce((prev, current) => (prev.netPnLEur < current.netPnLEur) ? prev : current) : null
    };

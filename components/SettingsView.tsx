@@ -5,13 +5,14 @@ import { useLiveData } from '../hooks/useLiveData';
 import { Card } from './ui/Card';
 import { Icons } from './ui/Icons';
 import { importTransactionsFromExcel, exportTransactionsToExcel } from '../services/excelService';
+import { DEFAULT_API_URL } from '../services/apiService';
 
 const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   
-  // API Config State
-  const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || '');
+  // API Config State: Use stored or Default
+  const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || DEFAULT_API_URL);
   const [isSavingApi, setIsSavingApi] = useState(false);
 
   // Price Feed State
@@ -93,7 +94,7 @@ const SettingsView: React.FC = () => {
                         type="text" 
                         value={apiUrl} 
                         onChange={(e) => setApiUrl(e.target.value)} 
-                        placeholder="https://tudominio.com/api-peakys/index.php" 
+                        placeholder={DEFAULT_API_URL} 
                         className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm font-mono"
                     />
                     <button onClick={handleSaveApiUrl} disabled={isSavingApi} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap">
