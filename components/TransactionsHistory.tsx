@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { useLiveData } from '../hooks/useLiveData'; // CAMBIO AQUÍ
+import { useLiveData } from '../hooks/useLiveData';
 import { db } from '../db';
 import { Icons } from './ui/Icons';
 import { Transaction, TransactionType } from '../types';
@@ -20,15 +20,29 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
     portfolio: 'ALL'
   });
 
-  // CAMBIO: useLiveData en lugar de useLiveQuery
   const transactions = useLiveData(async () => {
-    if (selectedPortfolio === 'ALL') return await db.transactions.toArray();
-    // Simulación de filtrado en cliente por ahora
-    const all = await db.transactions.toArray();
-    return all.filter(t => t.portfolio === selectedPortfolio);
+    try {
+        const all = await db.transactions.toArray();
+        // Ensure it's always an array to avoid .filter crash
+        const safeAll = Array.isArray(all) ? all : [];
+        
+        if (selectedPortfolio === 'ALL') return safeAll;
+        return safeAll.filter(t => t.portfolio === selectedPortfolio);
+    } catch (e) {
+        console.error("Error loading transactions:", e);
+        return [];
+    }
   }, [selectedPortfolio]) || [];
 
-  // Get unique portfolios for the filter dropdown
+  // Helper to safely parse numbers from potentially dirty API strings
+  const toNumber = (val: any): number => {
+    if (typeof val === 'number' && !isNaN(val)) return val;
+    if (val === null || val === undefined || val === '') return 0;
+    const str = String(val).replace(',', '.');
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
+
   const uniquePortfolios = useMemo(() => {
     const ports = new Set(transactions.map(t => t.portfolio));
     return Array.from(ports).sort();
@@ -45,11 +59,18 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
 
   // --- FILTERING LOGIC ---
   const filteredTransactions = transactions.filter(tx => {
-    const matchDate = tx.date.includes(filters.date);
-    const matchTicker = tx.ticker.toLowerCase().includes(filters.ticker.toLowerCase());
-    const matchAsset = tx.assetName.toLowerCase().includes(filters.assetName.toLowerCase());
-    const matchType = filters.type === 'ALL' || tx.type === filters.type;
-    const matchPortfolio = filters.portfolio === 'ALL' || tx.portfolio === filters.portfolio;
+    // Safely handle potentially undefined fields
+    const txDate = tx.date || '';
+    const txTicker = tx.ticker || '';
+    const txAsset = tx.assetName || '';
+    const txType = tx.type || '';
+    const txPortfolio = tx.portfolio || '';
+
+    const matchDate = txDate.includes(filters.date);
+    const matchTicker = txTicker.toLowerCase().includes(filters.ticker.toLowerCase());
+    const matchAsset = txAsset.toLowerCase().includes(filters.assetName.toLowerCase());
+    const matchType = filters.type === 'ALL' || txType === filters.type;
+    const matchPortfolio = filters.portfolio === 'ALL' || txPortfolio === filters.portfolio;
 
     return matchDate && matchTicker && matchAsset && matchType && matchPortfolio;
   });
@@ -125,13 +146,22 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
             {sortedTransactions.length === 0 ? (
               <tr><td colSpan={10} className="px-6 py-8 text-center text-slate-500">No hay transacciones.</td></tr>
             ) : (
-              sortedTransactions.map((tx) => {
-                const isBuy = tx.type === TransactionType.Buy;
-                const grossTotal = tx.quantity * tx.price;
-                const netTotal = isBuy ? (grossTotal + tx.commission) : (grossTotal - tx.commission);
+              sortedTransactions.map((tx, index) => {
+                // SANITIZE DATA ON RENDER TO PREVENT NAN
+                const quantity = toNumber(tx.quantity);
+                const price = toNumber(tx.price);
+                const commission = toNumber(tx.commission);
+                const currency = tx.currencyPlatform || 'EUR';
                 
+                const isBuy = tx.type === TransactionType.Buy;
+                const grossTotal = quantity * price;
+                const netTotal = isBuy ? (grossTotal + commission) : (grossTotal - commission);
+                
+                // Fallback key if ID is missing from API
+                const rowKey = tx.id ? tx.id : `tx-${index}-${tx.ticker}`;
+
                 return (
-                  <tr key={tx.id} className="hover:bg-slate-700/30 transition-colors group">
+                  <tr key={rowKey} className="hover:bg-slate-700/30 transition-colors group">
                     <td className="px-6 py-4 text-slate-300 font-mono text-xs">{tx.date}</td>
                     <td className="px-6 py-4 font-medium text-white">{tx.ticker}</td>
                     <td className="px-6 py-4 text-slate-300 max-w-[150px] truncate" title={tx.assetName}>{tx.assetName}</td>
@@ -141,10 +171,10 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-400">{tx.portfolio}</td>
-                    <td className="px-6 py-4 text-right text-slate-300">{tx.quantity.toFixed(0)}</td>
-                    <td className="px-6 py-4 text-right text-slate-300">{formatCurrency(tx.price, tx.currencyPlatform)}</td>
-                    <td className="px-6 py-4 text-right text-slate-400 text-xs">{formatCurrency(tx.commission, tx.currencyPlatform)}</td>
-                    <td className={`px-6 py-4 text-right font-medium ${isBuy ? 'text-slate-200' : 'text-emerald-400'}`}>{formatCurrency(netTotal, tx.currencyPlatform)}</td>
+                    <td className="px-6 py-4 text-right text-slate-300">{quantity.toFixed(0)}</td>
+                    <td className="px-6 py-4 text-right text-slate-300">{formatCurrency(price, currency)}</td>
+                    <td className="px-6 py-4 text-right text-slate-400 text-xs">{formatCurrency(commission, currency)}</td>
+                    <td className={`px-6 py-4 text-right font-medium ${isBuy ? 'text-slate-200' : 'text-emerald-400'}`}>{formatCurrency(netTotal, currency)}</td>
                     <td className="px-6 py-4 text-center">
                        <div className="flex items-center justify-center gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
                          <button onClick={() => onEdit(tx)} className="p-1.5 rounded bg-slate-700 text-blue-400 hover:bg-blue-900/30 transition-colors"><Icons.Settings size={14} /></button>
