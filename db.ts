@@ -1,6 +1,6 @@
 
 import { api } from './services/apiService';
-import { Transaction, LiquidityEvent, Portfolio, AssetTypeEntity, AssetAllocationTarget, DefaultPortfolios, DefaultAssetTypes } from './types';
+import { Transaction, LiquidityEvent, Portfolio, AssetTypeEntity, AssetAllocationTarget, DefaultPortfolios, DefaultAssetTypes, User } from './types';
 
 // Sistema simple de Pub/Sub para notificar cambios a los componentes React
 type Listener = () => void;
@@ -79,6 +79,7 @@ class VirtualDatabase {
   portfolios: VirtualTable<Portfolio>;
   assetTypes: VirtualTable<AssetTypeEntity>;
   allocationTargets: VirtualTable<AssetAllocationTarget>;
+  users: VirtualTable<User>;
   settings: any;
 
   private listeners: Listener[] = [];
@@ -90,6 +91,7 @@ class VirtualDatabase {
     this.portfolios = new VirtualTable('pky_portfolios', this);
     this.assetTypes = new VirtualTable('pky_asset_types', this);
     this.allocationTargets = new VirtualTable('pky_allocation_targets', this);
+    this.users = new VirtualTable('pky_users', this);
     
     // Settings uses a specialized approach or reuses a table logic
     this.settings = {
@@ -140,7 +142,6 @@ export const seedDatabase = async () => {
     const portfolios = await db.portfolios.toArray();
 
     // 3. CRITICAL: If API reported connection errors during fetch, DO NOT try to write.
-    // This prevents the infinite loop of (Read Fail -> Return [] -> Seed thinks Empty -> Write Fail -> Error).
     if (api.hasError) {
         console.warn("Skipping database seed: API connection is unstable or offline.");
         return;
@@ -148,6 +149,8 @@ export const seedDatabase = async () => {
 
     // 4. Only seed if connection is healthy and tables are genuinely empty
     if (portfolios.length === 0) {
+        // NOTE: Seeding Default Portfolios usually assigns them to no user (null) or a default user.
+        // For now, we keep them generic.
         console.log("Seeding Portfolios...");
         await db.portfolios.bulkAdd([
             { name: DefaultPortfolios.Alejandro },

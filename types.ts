@@ -43,9 +43,17 @@ export enum TransactionType {
 
 // Database Entities
 
+export interface User {
+  id?: number;
+  username: string;
+  password?: string; // Only used for registration/check
+  role: 'admin' | 'user';
+}
+
 export interface Portfolio {
   id?: number;
   name: string;
+  owner_id?: number; // Link to User ID
 }
 
 export interface AssetTypeEntity {
