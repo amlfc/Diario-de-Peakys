@@ -1,16 +1,17 @@
+
 import React from 'react';
 import { FundamentalRef } from '../types';
 
 const REF_DATA: FundamentalRef[] = [
   { metric: 'ROE', reference: 'Superior 20%, estable en tiempo' },
   { metric: 'ROA', reference: 'Superior al 12-15%' },
-  { metric: 'Current Ratio', reference: 'Mayor a 1' },
+  { metric: 'Ratio de Liquidez', reference: 'Mayor a 1' },
   { metric: 'Deuda LP', reference: 'Controlada vs EBITDA' },
   { metric: 'EV/EBITDA', reference: 'x10 - x12 razonable' },
   { metric: 'PER', reference: 'Media histórica x15-x20' },
-  { metric: 'Ventas Growth', reference: 'Mayor a 8% anual' },
+  { metric: 'Crecimiento Ventas', reference: 'Mayor a 8% anual' },
   { metric: 'ROI', reference: 'Mayor a 13%' },
-  { metric: 'Free Cash Flow', reference: 'Positivo y creciente' },
+  { metric: 'Flujo de Caja Libre', reference: 'Positivo y creciente' },
 ];
 
 const FundamentalRefTable: React.FC = () => {

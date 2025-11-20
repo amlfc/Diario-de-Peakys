@@ -150,12 +150,12 @@ export const exportAnalysisToExcel = (trades: ClosedTrade[], metrics: AnalysisMe
    
    // Sheet 1: Summary
    const summaryData = [
-     { Metric: 'Total Operaciones', Value: metrics.totalTrades },
-     { Metric: 'Beneficio Neto Total (€)', Value: metrics.totalProfitEur },
-     { Metric: 'Win Rate %', Value: (metrics.winRate * 100).toFixed(2) + '%' },
-     { Metric: 'Profit Factor', Value: metrics.profitFactor.toFixed(2) },
-     { Metric: 'Promedio Ganancia (€)', Value: metrics.avgWinEur },
-     { Metric: 'Promedio Pérdida (€)', Value: metrics.avgLossEur },
+     { Métrica: 'Total Operaciones', Valor: metrics.totalTrades },
+     { Métrica: 'Beneficio Neto Total (€)', Valor: metrics.totalProfitEur },
+     { Métrica: 'Tasa de Acierto %', Valor: (metrics.winRate * 100).toFixed(2) + '%' },
+     { Métrica: 'Factor de Beneficio', Valor: metrics.profitFactor.toFixed(2) },
+     { Métrica: 'Promedio Ganancia (€)', Valor: metrics.avgWinEur },
+     { Métrica: 'Promedio Pérdida (€)', Valor: metrics.avgLossEur },
    ];
    const wsSummary = utils.json_to_sheet(summaryData);
    utils.book_append_sheet(wb, wsSummary, "Resumen");
@@ -178,7 +178,7 @@ export const exportAnalysisToExcel = (trades: ClosedTrade[], metrics: AnalysisMe
    const wsDetail = utils.json_to_sheet(detailData);
    utils.book_append_sheet(wb, wsDetail, "Detalle Operaciones");
 
-   writeFile(wb, `Peakys_Analysis_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+   writeFile(wb, `Peakys_Informe_Analisis_${new Date().toISOString().split('T')[0]}.xlsx`);
 };
 
 export const exportAnalysisToPDF = (trades: ClosedTrade[], metrics: AnalysisMetrics) => {
@@ -206,14 +206,14 @@ export const exportAnalysisToPDF = (trades: ClosedTrade[], metrics: AnalysisMetr
   
   // Row 1
   doc.text(`Total P&L: ${new Intl.NumberFormat('es-ES', {style: 'currency', currency: 'EUR'}).format(metrics.totalProfitEur)}`, 20, startY + 10);
-  doc.text(`Win Rate: ${(metrics.winRate * 100).toFixed(1)}%`, 80, startY + 10);
-  doc.text(`Profit Factor: ${metrics.profitFactor.toFixed(2)}`, 140, startY + 10);
+  doc.text(`Tasa Acierto: ${(metrics.winRate * 100).toFixed(1)}%`, 80, startY + 10);
+  doc.text(`Factor Beneficio: ${metrics.profitFactor.toFixed(2)}`, 140, startY + 10);
   
   // Row 2
   doc.setFontSize(10);
   doc.text(`Ops Totales: ${metrics.totalTrades}`, 20, startY + 20);
-  doc.text(`Avg Win: €${metrics.avgWinEur.toFixed(2)}`, 80, startY + 20);
-  doc.text(`Avg Loss: €${metrics.avgLossEur.toFixed(2)}`, 140, startY + 20);
+  doc.text(`Media Gan.: €${metrics.avgWinEur.toFixed(2)}`, 80, startY + 20);
+  doc.text(`Media Pérd.: €${metrics.avgLossEur.toFixed(2)}`, 140, startY + 20);
 
   // Table
   const tableColumn = ["Fecha", "Cartera", "Ticker", "Venta", "Coste (€)", "P&L (€)", "%"];
@@ -246,5 +246,5 @@ export const exportAnalysisToPDF = (trades: ClosedTrade[], metrics: AnalysisMetr
     }
   });
 
-  doc.save(`Peakys_Report_PDF_${new Date().toISOString().split('T')[0]}.pdf`);
+  doc.save(`Peakys_Informe_PDF_${new Date().toISOString().split('T')[0]}.pdf`);
 };

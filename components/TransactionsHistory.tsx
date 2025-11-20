@@ -87,7 +87,7 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
               <th className="px-6 py-3">Activo</th>
               <th className="px-6 py-3">Operación</th>
               <th className="px-6 py-3">Cartera</th>
-              <th className="px-6 py-3 text-right">Cant.</th>
+              <th className="px-6 py-3 text-right">CANTIDAD</th>
               <th className="px-6 py-3 text-right">Precio</th>
               <th className="px-6 py-3 text-right">Comisión</th>
               <th className="px-6 py-3 text-right">Total (Neto)</th>
@@ -141,7 +141,7 @@ const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({ onEdit, selec
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-400">{tx.portfolio}</td>
-                    <td className="px-6 py-4 text-right text-slate-300">{tx.quantity}</td>
+                    <td className="px-6 py-4 text-right text-slate-300">{tx.quantity.toFixed(0)}</td>
                     <td className="px-6 py-4 text-right text-slate-300">{formatCurrency(tx.price, tx.currencyPlatform)}</td>
                     <td className="px-6 py-4 text-right text-slate-400 text-xs">{formatCurrency(tx.commission, tx.currencyPlatform)}</td>
                     <td className={`px-6 py-4 text-right font-medium ${isBuy ? 'text-slate-200' : 'text-emerald-400'}`}>{formatCurrency(netTotal, tx.currencyPlatform)}</td>

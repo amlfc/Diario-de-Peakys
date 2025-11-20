@@ -84,7 +84,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
         <StatCard 
           title="Liquidez"
           value={formatCurrency(metrics.availableCashEur)}
-          subValue={`(In + G/P) - Out`}
+          subValue={`(Ing + G/P) - Ret`}
           trend="neutral"
           icon={<Icons.Liquidity size={20} />}
         />

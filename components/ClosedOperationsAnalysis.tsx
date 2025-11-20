@@ -115,10 +115,10 @@ const ClosedOperationsAnalysis: React.FC<Props> = ({ transactions }) => {
       {/* KPI CARDS */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <StatCard title="Beneficio Neto" value={formatCurrency(metrics.totalProfitEur)} trend={metrics.totalProfitEur >= 0 ? 'up' : 'down'} />
-          <StatCard title="Win Rate" value={(metrics.winRate * 100).toFixed(1) + '%'} subValue={`${metrics.totalTrades} Ops`} trend={metrics.winRate > 0.5 ? 'up' : 'neutral'} />
-          <StatCard title="Profit Factor" value={metrics.profitFactor.toFixed(2)} trend={metrics.profitFactor > 1.5 ? 'up' : 'neutral'} />
-          <StatCard title="Avg Ganancia" value={formatCurrency(metrics.avgWinEur)} subValue="En ganadoras" trend="up" />
-          <StatCard title="Avg Pérdida" value={formatCurrency(metrics.avgLossEur)} subValue="En perdedoras" trend="down" />
+          <StatCard title="Tasa de Acierto" value={(metrics.winRate * 100).toFixed(1) + '%'} subValue={`${metrics.totalTrades} Ops`} trend={metrics.winRate > 0.5 ? 'up' : 'neutral'} />
+          <StatCard title="Factor Beneficio" value={metrics.profitFactor.toFixed(2)} trend={metrics.profitFactor > 1.5 ? 'up' : 'neutral'} />
+          <StatCard title="Ganancia Media" value={formatCurrency(metrics.avgWinEur)} subValue="En ganadoras" trend="up" />
+          <StatCard title="Pérdida Media" value={formatCurrency(metrics.avgLossEur)} subValue="En perdedoras" trend="down" />
           <StatCard title="Mejor Op." value={metrics.bestTrade ? formatCurrency(metrics.bestTrade.netPnLEur) : '-'} subValue={metrics.bestTrade?.ticker || '-'} icon={<Icons.Target size={16}/>} />
       </div>
 
