@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { db } from '../db';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { AssetType, Currency, PortfolioOwner, TransactionType, DefaultAssetTypes, Transaction } from '../types';
 import { Icons } from './ui/Icons';
 import { getFxRateToEur } from '../services/marketDataService';
@@ -8,12 +9,12 @@ import { getFxRateToEur } from '../services/marketDataService';
 interface TransactionFormProps {
   onSuccess: () => void;
   onCancel: () => void;
-  initialData?: Transaction; // Optional prop for editing mode
+  initialData?: Transaction;
 }
 
 const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, initialData }) => {
-  const portfolios = useLiveQuery(() => db.portfolios.toArray()) || [];
-  const assetTypes = useLiveQuery(() => db.assetTypes.toArray()) || [];
+  const portfolios = useLiveData(() => db.portfolios.toArray()) || [];
+  const assetTypes = useLiveData(() => db.assetTypes.toArray()) || [];
   
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -29,7 +30,6 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
     fxRateToEur: '1',
   });
 
-  // Load initial data if editing
   useEffect(() => {
     if (initialData) {
       setFormData({
@@ -66,10 +66,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
       };
 
       if (initialData && initialData.id) {
-        // Update existing
         await db.transactions.update(initialData.id, payload);
       } else {
-        // Create new
         await db.transactions.add(payload);
       }
       onSuccess();
@@ -83,8 +81,6 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
     const { name, value } = e.target;
 
     if (name === 'currencyPlatform') {
-      // Auto-fetch FX rate when currency changes
-      // getFxRateToEur handles logic: Returns 1 for EUR, or fetched/fallback rate for others
       const newRate = getFxRateToEur(value);
       setFormData({ 
         ...formData, 
@@ -112,11 +108,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         <div>
           <label className="block text-xs text-slate-400 mb-1">Cartera</label>
           <select name="portfolio" value={formData.portfolio} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none">
-            {portfolios.length > 0 ? (
-              portfolios.map(p => <option key={p.id} value={p.name}>{p.name}</option>)
-            ) : (
-              <option value="Alejandro">Alejandro</option>
-            )}
+            {portfolios.length > 0 ? portfolios.map(p => <option key={p.id} value={p.name}>{p.name}</option>) : <option value="Alejandro">Alejandro</option>}
           </select>
         </div>
         <div>
@@ -137,11 +129,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         <div>
           <label className="block text-xs text-slate-400 mb-1">Tipo Activo</label>
           <select name="assetType" value={formData.assetType} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none">
-            {assetTypes.length > 0 ? (
-              assetTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)
-            ) : (
-              <option value={DefaultAssetTypes.ActionLong}>{DefaultAssetTypes.ActionLong}</option>
-            )}
+            {assetTypes.length > 0 ? assetTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>) : <option value={DefaultAssetTypes.ActionLong}>{DefaultAssetTypes.ActionLong}</option>}
           </select>
         </div>
 
@@ -166,15 +154,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Tipo Cambio a EUR</label>
-          <input 
-            type="number" 
-            step="0.0001" 
-            name="fxRateToEur" 
-            value={formData.fxRateToEur} 
-            onChange={handleChange} 
-            className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none"
-            title="Se calcula automáticamente si la lista de precios está cargada"
-          />
+          <input type="number" step="0.0001" name="fxRateToEur" value={formData.fxRateToEur} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none" title="Se calcula automáticamente si la lista de precios está cargada"/>
         </div>
 
         <div className="col-span-1 md:col-span-2 lg:col-span-3 flex justify-end gap-3 mt-4">

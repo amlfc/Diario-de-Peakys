@@ -1,47 +1,62 @@
+
 import { read, utils, writeFile } from 'xlsx';
 import { db } from '../db';
 import { Transaction, TransactionType, Currency, DefaultAssetTypes, LiquidityEvent } from '../types';
 
 // --- HELPER FUNCTIONS ---
 
-// 1. Robust Date Parsing
+// 1. Robust Date Parsing for MySQL (YYYY-MM-DD)
 const parseExcelDate = (raw: any): string => {
   if (!raw) return new Date().toISOString().split('T')[0];
 
-  const strVal = raw.toString().toLowerCase().trim();
-  if (strVal === 'inicio') {
-      return '2023-01-01'; // Default fallback for "Inicio" text to ensure it sorts at start
-  }
+  try {
+    let dateObj: Date | null = null;
 
-  // JS Date Object
-  if (raw instanceof Date) {
-    const offset = raw.getTimezoneOffset() * 60000;
-    return new Date(raw.getTime() - offset).toISOString().split('T')[0];
-  }
-
-  // Excel Serial Number
-  if (typeof raw === 'number') {
-    return new Date(Math.round((raw - 25569) * 86400 * 1000)).toISOString().split('T')[0];
-  }
-
-  // String parsing
-  if (typeof raw === 'string') {
-    const clean = raw.trim();
-    // EU Format: DD/MM/YYYY
-    const euMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-    if (euMatch) {
-      const day = euMatch[1].padStart(2, '0');
-      const month = euMatch[2].padStart(2, '0');
-      const year = euMatch[3];
-      return `${year}-${month}-${day}`;
+    // Handle "Inicio" text
+    if (typeof raw === 'string' && raw.toLowerCase().trim() === 'inicio') {
+       return '2023-01-01';
     }
-    // ISO Format
-    const isoMatch = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-    if (isoMatch) return clean.replace(/\//g, '-');
-  }
 
-  const d = new Date(raw);
-  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+    // JS Date Object
+    if (raw instanceof Date) {
+      dateObj = raw;
+    }
+    // Excel Serial Number
+    else if (typeof raw === 'number') {
+      // Adjust for Excel leap year bug if needed, but usually this standard calc works for modern dates
+      dateObj = new Date(Math.round((raw - 25569) * 86400 * 1000));
+    }
+    // String parsing
+    else if (typeof raw === 'string') {
+      const clean = raw.trim();
+      
+      // Try EU Format: DD/MM/YYYY
+      const euMatch = clean.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+      if (euMatch) {
+        const day = parseInt(euMatch[1]);
+        const month = parseInt(euMatch[2]) - 1; // JS months are 0-indexed
+        const year = parseInt(euMatch[3]);
+        dateObj = new Date(year, month, day);
+      } 
+      // Try ISO Format: YYYY-MM-DD
+      else if (clean.match(/^\d{4}-\d{2}-\d{2}/)) {
+         return clean.substring(0, 10);
+      }
+      else {
+         dateObj = new Date(clean);
+      }
+    }
+
+    if (dateObj && !isNaN(dateObj.getTime())) {
+        // Ensure we get YYYY-MM-DD without timezone shifts causing day jumps
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+  } catch (e) {
+    console.warn("Date parsing error", e);
+  }
 
   return new Date().toISOString().split('T')[0];
 };
@@ -112,188 +127,186 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
         let totalTransactions = 0;
         let totalLiquidity = 0;
 
-        await (db as any).transaction('rw', db.transactions, db.liquidity, db.portfolios, db.assetTypes, async () => {
+        // Using bulk operations is critical for performance with API
+        const transactionsToAdd: Transaction[] = [];
+        const liquidityToAdd: LiquidityEvent[] = [];
+        const newPortfolios = new Set<string>();
+
+        // --- 1. READ TRANSACTIONS ---
+        const txSheetName = workbook.SheetNames.find(n => 
+            n.toLowerCase().includes('transac') || 
+            n.toLowerCase().includes('historial') ||
+            n.toLowerCase().includes('operaciones')
+        ) || workbook.SheetNames[0];
+
+        const txSheet = workbook.Sheets[txSheetName];
+        const txRows = utils.sheet_to_json(txSheet, { header: 1, range: 0, defval: '' }) as any[][];
+
+        if (txRows && txRows.length > 0) {
+            let headerIndex = -1;
+            const keywords = ['ticker', 'simbolo', 'symbol', 'activo', 'code', 'isin', 'producto'];
             
-            // --- 1. IMPORT TRANSACTIONS ---
-            const txSheetName = workbook.SheetNames.find(n => 
-                n.toLowerCase().includes('transac') || 
-                n.toLowerCase().includes('historial') ||
-                n.toLowerCase().includes('operaciones')
-            ) || workbook.SheetNames[0];
+            for (let i = 0; i < Math.min(txRows.length, 20); i++) {
+                const rowStr = JSON.stringify(txRows[i]).toLowerCase();
+                if (keywords.some(k => rowStr.includes(k))) {
+                    headerIndex = i;
+                    break;
+                }
+            }
+            if (headerIndex === -1) headerIndex = 0;
 
-            const txSheet = workbook.Sheets[txSheetName];
-            const txRows = utils.sheet_to_json(txSheet, { header: 1, range: 0, defval: '' }) as any[][];
+            const headerRow = txRows[headerIndex].map((cell: any) => (cell?.toString() || '').toLowerCase().trim());
+            const colMap: Record<string, number> = {};
+            headerRow.forEach((val, idx) => { if(val) colMap[val] = idx; });
 
-            if (txRows && txRows.length > 0) {
-                let headerIndex = -1;
-                const keywords = ['ticker', 'simbolo', 'symbol', 'activo', 'code', 'isin', 'producto', 'instrumento', 'security', 'name', 'nombre'];
+            for (let i = headerIndex + 1; i < txRows.length; i++) {
+                const row = txRows[i];
+                if (!row || row.length === 0) continue;
+
+                const tickerRaw = getCell(row, colMap, ['Ticker', 'Simbolo', 'Symbol', 'Activo', 'Code', 'ISIN', 'Producto']);
+                if (!tickerRaw) continue; 
+
+                const ticker = tickerRaw.toString().toUpperCase().trim();
+                const rawQty = cleanNumber(getCell(row, colMap, ['Cantidad', 'Quantity', 'Units', 'Unidades', 'Shares']));
+                const rawPrice = cleanNumber(getCell(row, colMap, ['Precio', 'Price', 'Coste', 'Cost', 'Amount']));
+                const commRaw = cleanNumber(getCell(row, colMap, ['Comision', 'Comisión', 'Commission', 'Fees', 'Gastos']));
+                const fxRaw = cleanNumber(getCell(row, colMap, ['Tipo Cambio', 'FX', 'FX Rate', 'Cambio']));
                 
-                for (let i = 0; i < Math.min(txRows.length, 20); i++) {
-                    const rowStr = JSON.stringify(txRows[i]).toLowerCase();
-                    if (keywords.some(k => rowStr.includes(k))) {
-                        headerIndex = i;
+                const typeRaw = getCell(row, colMap, ['Tipo', 'Type', 'Operacion', 'B/S']);
+                const typeStr = (typeRaw || '').toString().toLowerCase();
+                
+                let type = TransactionType.Buy;
+                if (typeStr.includes('venta') || typeStr.includes('sell') || typeStr === 's' || typeStr === 'v') {
+                    type = TransactionType.Sell;
+                } else if (typeStr.includes('compra') || typeStr.includes('buy') || typeStr === 'b' || typeStr === 'c') {
+                    type = TransactionType.Buy;
+                } else {
+                    if (rawQty < 0) type = TransactionType.Sell;
+                }
+
+                const portfolio = (getCell(row, colMap, ['Cartera', 'Portfolio', 'Cuenta', 'Account']) || 'Alejandro').toString().trim();
+                const assetName = getCell(row, colMap, ['Nombre', 'Nombre Activo', 'Name', 'Description', 'Empresa'])?.toString().trim() || ticker;
+                
+                const assetTypeRaw = getCell(row, colMap, ['Tipo Activo', 'Asset Type', 'Categoria', 'Clase']);
+                let assetType = DefaultAssetTypes.ActionLong;
+                if (assetTypeRaw) {
+                    const atStr = assetTypeRaw.toString().toLowerCase();
+                    if (atStr.includes('etf')) assetType = DefaultAssetTypes.ETFLong;
+                    else if (atStr.includes('swing')) assetType = DefaultAssetTypes.ActionSwing;
+                    else if (atStr.includes('penny')) assetType = DefaultAssetTypes.ActionPenny;
+                    else if (atStr.includes('cripto') || atStr.includes('crypto')) assetType = DefaultAssetTypes.Crypto;
+                    else if (atStr.includes('fija') || atStr.includes('bono')) assetType = DefaultAssetTypes.FixedIncome;
+                    else if (atStr.includes('materia') || atStr.includes('gold')) assetType = DefaultAssetTypes.Commodity;
+                }
+
+                const quantity = Math.abs(rawQty);
+                const price = Math.abs(rawPrice);
+                
+                if (quantity > 0) {
+                    newPortfolios.add(portfolio);
+                    transactionsToAdd.push({
+                        date: parseExcelDate(getCell(row, colMap, ['Fecha', 'Date', 'Time', 'Day'])),
+                        portfolio,
+                        type,
+                        ticker,
+                        assetName,
+                        assetType,
+                        quantity,
+                        price,
+                        commission: Math.abs(commRaw),
+                        currencyPlatform: (getCell(row, colMap, ['Divisa', 'Currency', 'Moneda']) || 'EUR').toString().toUpperCase().trim() as Currency,
+                        fxRateToEur: fxRaw > 0 ? fxRaw : 1,
+                        notes: getCell(row, colMap, ['Notas', 'Notes', 'Comentarios'])?.toString() || ''
+                    });
+                }
+            }
+        }
+
+        // --- 2. READ LIQUIDITY ---
+        const liqSheetName = workbook.SheetNames.find(n => 
+            n.toLowerCase().includes('aportacion') || 
+            n.toLowerCase().includes('liquidez') ||
+            n.toLowerCase().includes('ingreso')
+        );
+
+        if (liqSheetName) {
+            const liqSheet = workbook.Sheets[liqSheetName];
+            const liqRows = utils.sheet_to_json(liqSheet, { header: 1, range: 0, defval: '' }) as any[][];
+            
+            if (liqRows && liqRows.length > 0) {
+                let liqHeaderIndex = -1;
+                const liqKeywords = ['aportacion', 'importe', 'amount', 'ingreso'];
+                
+                for (let i = 0; i < Math.min(liqRows.length, 20); i++) {
+                    const rowStr = JSON.stringify(liqRows[i]).toLowerCase();
+                    if (liqKeywords.some(k => rowStr.includes(k))) {
+                        liqHeaderIndex = i;
                         break;
                     }
                 }
-                if (headerIndex === -1) headerIndex = 0;
+                if (liqHeaderIndex === -1) liqHeaderIndex = 0;
 
-                const headerRow = txRows[headerIndex].map((cell: any) => (cell?.toString() || '').toLowerCase().trim());
-                const colMap: Record<string, number> = {};
-                headerRow.forEach((val, idx) => { if(val) colMap[val] = idx; });
-
-                const transactionsToAdd: Transaction[] = [];
-
-                for (let i = headerIndex + 1; i < txRows.length; i++) {
-                    const row = txRows[i];
+                const liqHeaderRow = liqRows[liqHeaderIndex].map((cell: any) => (cell?.toString() || '').toLowerCase().trim());
+                const liqColMap: Record<string, number> = {};
+                liqHeaderRow.forEach((val, idx) => { if(val) liqColMap[val] = idx; });
+                
+                for (let i = liqHeaderIndex + 1; i < liqRows.length; i++) {
+                    const row = liqRows[i];
                     if (!row || row.length === 0) continue;
 
-                    const tickerRaw = getCell(row, colMap, ['Ticker', 'Simbolo', 'Symbol', 'Activo', 'Code', 'ISIN', 'Producto', 'Instrumento', 'Security']);
-                    if (!tickerRaw) continue; 
+                    const amountRaw = cleanNumber(getCell(row, liqColMap, ['Aportación', 'Importe', 'Amount', 'Ingreso']));
+                    if (amountRaw === 0) continue;
 
-                    const ticker = tickerRaw.toString().toUpperCase().trim();
-                    const rawQty = cleanNumber(getCell(row, colMap, ['Cantidad', 'Quantity', 'Units', 'Unidades', 'Shares', 'Títulos', 'Titulos', 'Volumen']));
-                    const rawPrice = cleanNumber(getCell(row, colMap, ['Precio', 'Price', 'Coste', 'Cost', 'Amount', 'Valor']));
+                    const portfolio = (getCell(row, liqColMap, ['Cartera', 'Portfolio', 'Cuenta']) || 'Alejandro').toString().trim();
+                    const rawDate = getCell(row, liqColMap, ['Fecha', 'Date']);
+                    const type = (getCell(row, liqColMap, ['Tipo', 'Type', 'Concepto']) || 'Ingreso').toString().trim();
                     
-                    // Added accented variations for Commission
-                    const commRaw = cleanNumber(getCell(row, colMap, ['Comision', 'Comisión', 'Comisiones', 'Commission', 'Fees', 'Fee', 'Gastos', 'Costs']));
-                    
-                    const fxRaw = cleanNumber(getCell(row, colMap, ['Tipo Cambio', 'FX', 'FX Rate', 'Exchange Rate', 'Cambio']));
-                    
-                    const typeRaw = getCell(row, colMap, ['Tipo', 'Type', 'Operacion', 'Direction', 'B/S', 'Side']);
-                    const typeStr = (typeRaw || '').toString().toLowerCase();
-                    
-                    let type = TransactionType.Buy;
-                    if (typeStr.includes('venta') || typeStr.includes('sell') || typeStr === 's' || typeStr === 'v') {
-                        type = TransactionType.Sell;
-                    } else if (typeStr.includes('compra') || typeStr.includes('buy') || typeStr === 'b' || typeStr === 'c') {
-                        type = TransactionType.Buy;
-                    } else {
-                        if (rawQty < 0) type = TransactionType.Sell;
-                    }
-
-                    const portfolio = (getCell(row, colMap, ['Cartera', 'Portfolio', 'Cuenta', 'Account', 'Nombre Cartera']) || 'Alejandro').toString().trim();
-                    const assetName = getCell(row, colMap, ['Nombre', 'Nombre Activo', 'Name', 'Description', 'Security Name', 'Empresa'])?.toString().trim() || ticker;
-                    
-                    const assetTypeRaw = getCell(row, colMap, ['Tipo Activo', 'Asset Type', 'Categoria', 'Category', 'Clase']);
-                    let assetType = DefaultAssetTypes.ActionLong;
-                    if (assetTypeRaw) {
-                        const atStr = assetTypeRaw.toString().toLowerCase();
-                        if (atStr.includes('etf')) assetType = DefaultAssetTypes.ETFLong;
-                        else if (atStr.includes('swing')) assetType = DefaultAssetTypes.ActionSwing;
-                        else if (atStr.includes('penny')) assetType = DefaultAssetTypes.ActionPenny;
-                        else if (atStr.includes('cripto') || atStr.includes('crypto') || atStr.includes('btc') || atStr.includes('eth')) assetType = DefaultAssetTypes.Crypto;
-                        else if (atStr.includes('fija') || atStr.includes('bono') || atStr.includes('letra')) assetType = DefaultAssetTypes.FixedIncome;
-                        else if (atStr.includes('materia') || atStr.includes('gold') || atStr.includes('oro')) assetType = DefaultAssetTypes.Commodity;
-                    }
-
-                    const quantity = Math.abs(rawQty);
-                    const price = Math.abs(rawPrice);
-                    
-                    if (quantity > 0) {
-                        transactionsToAdd.push({
-                            date: parseExcelDate(getCell(row, colMap, ['Fecha', 'Date', 'Time', 'Day'])),
-                            portfolio,
-                            type,
-                            ticker,
-                            assetName,
-                            assetType,
-                            quantity,
-                            price,
-                            commission: Math.abs(commRaw),
-                            currencyPlatform: (getCell(row, colMap, ['Divisa', 'Currency', 'Moneda', 'Curr']) || 'EUR').toString().toUpperCase().trim() as Currency,
-                            fxRateToEur: fxRaw > 0 ? fxRaw : 1,
-                            notes: getCell(row, colMap, ['Notas', 'Notes', 'Comentarios'])?.toString() || ''
-                        });
-                    }
-                }
-                if (transactionsToAdd.length > 0) {
-                    await db.transactions.bulkAdd(transactionsToAdd);
-                    totalTransactions = transactionsToAdd.length;
-                    
-                    // Ensure Portfolios exist
-                    const distinctPortfolios = Array.from(new Set(transactionsToAdd.map(t => t.portfolio)));
-                    const existingPortfolios = await db.portfolios.toArray();
-                    const newPortfolios = distinctPortfolios
-                        .filter(p => !existingPortfolios.some(ep => ep.name === p))
-                        .map(name => ({ name }));
-                    if (newPortfolios.length > 0) await db.portfolios.bulkAdd(newPortfolios);
+                    liquidityToAdd.push({
+                        date: parseExcelDate(rawDate),
+                        portfolio,
+                        amountEur: amountRaw,
+                        type,
+                        notes: getCell(row, liqColMap, ['Notas', 'Notes'])?.toString() || ''
+                    });
                 }
             }
+        }
 
-            // --- 2. IMPORT LIQUIDITY (APORTACIONES) ---
-            const liqSheetName = workbook.SheetNames.find(n => 
-                n.toLowerCase().includes('aportacion') || 
-                n.toLowerCase().includes('liquidez') ||
-                n.toLowerCase().includes('ingreso')
-            );
+        // --- EXECUTE DB OPERATIONS ---
+        try {
+             if (transactionsToAdd.length > 0) {
+                 console.log("Bulk Adding Transactions:", transactionsToAdd.length);
+                 await db.transactions.bulkAdd(transactionsToAdd);
+                 
+                 // Ensure Portfolios
+                 const existingPortfolios = await db.portfolios.toArray();
+                 const portsToAdd = Array.from(newPortfolios)
+                    .filter(p => !existingPortfolios.some(ep => ep.name === p))
+                    .map(name => ({ name }));
+                 
+                 if (portsToAdd.length > 0) {
+                     await db.portfolios.bulkAdd(portsToAdd);
+                 }
+             }
 
-            if (liqSheetName) {
-                const liqSheet = workbook.Sheets[liqSheetName];
-                const liqRows = utils.sheet_to_json(liqSheet, { header: 1, range: 0, defval: '' }) as any[][];
-                
-                if (liqRows && liqRows.length > 0) {
-                    let liqHeaderIndex = -1;
-                    const liqKeywords = ['aportacion', 'importe', 'amount', 'ingreso', 'dinero'];
-                    
-                    for (let i = 0; i < Math.min(liqRows.length, 20); i++) {
-                        const rowStr = JSON.stringify(liqRows[i]).toLowerCase();
-                        if (liqKeywords.some(k => rowStr.includes(k))) {
-                            liqHeaderIndex = i;
-                            break;
-                        }
-                    }
-                    if (liqHeaderIndex === -1) liqHeaderIndex = 0;
+             if (liquidityToAdd.length > 0) {
+                 console.log("Bulk Adding Liquidity:", liquidityToAdd.length);
+                 await db.liquidity.bulkAdd(liquidityToAdd);
+             }
 
-                    const liqHeaderRow = liqRows[liqHeaderIndex].map((cell: any) => (cell?.toString() || '').toLowerCase().trim());
-                    const liqColMap: Record<string, number> = {};
-                    liqHeaderRow.forEach((val, idx) => { if(val) liqColMap[val] = idx; });
-                    
-                    const liquidityToAdd: LiquidityEvent[] = [];
+             resolve({ 
+                success: true, 
+                count: transactionsToAdd.length, 
+                error: liquidityToAdd.length > 0 ? ` (+ ${liquidityToAdd.length} Aportaciones)` : undefined 
+            });
 
-                    for (let i = liqHeaderIndex + 1; i < liqRows.length; i++) {
-                        const row = liqRows[i];
-                        if (!row || row.length === 0) continue;
-
-                        const amountRaw = cleanNumber(getCell(row, liqColMap, ['Aportación', 'Aportacion', 'Aportacion (EUR)', 'Importe', 'Amount', 'Ingreso']));
-                        if (amountRaw === 0) continue;
-
-                        const portfolio = (getCell(row, liqColMap, ['Cartera', 'Portfolio', 'Cuenta']) || 'Alejandro').toString().trim();
-                        const rawDate = getCell(row, liqColMap, ['Fecha', 'Date', 'Dia']);
-                        const type = (getCell(row, liqColMap, ['Tipo', 'Type', 'Concepto', 'Descripcion']) || 'Ingreso').toString().trim();
-                        
-                        const date = parseExcelDate(rawDate);
-                        const notes = getCell(row, liqColMap, ['Notas', 'Notes'])?.toString() || '';
-
-                        const finalNotes = rawDate && rawDate.toString().toLowerCase().includes('inicio') 
-                            ? `${notes} (Aportación Inicial)`.trim() 
-                            : notes;
-
-                        liquidityToAdd.push({
-                            date,
-                            portfolio,
-                            amountEur: amountRaw,
-                            type,
-                            notes: finalNotes
-                        });
-                    }
-
-                    if (liquidityToAdd.length > 0) {
-                         await db.liquidity.bulkAdd(liquidityToAdd);
-                         totalLiquidity = liquidityToAdd.length;
-                    }
-                }
-            }
-
-        }); // End Transaction
-
-        resolve({ 
-            success: true, 
-            count: totalTransactions, 
-            error: totalLiquidity > 0 ? ` (+ ${totalLiquidity} Aportaciones)` : undefined 
-        });
+        } catch (err: any) {
+             console.error("Bulk Write Error:", err);
+             resolve({ success: false, count: 0, error: "Error guardando en Base de Datos (Revisa logs)" });
+        }
 
       } catch (err: any) {
-        console.error("Excel Import Error:", err);
+        console.error("Excel Read Error:", err);
         resolve({ success: false, count: 0, error: 'Error crítico: ' + err.message });
       }
     };
