@@ -1,3 +1,4 @@
+
 import { db } from '../db';
 import { User } from '../types';
 
@@ -51,7 +52,7 @@ class AuthService {
         if (msg.includes('Invalid or missing table') || msg.includes('pky_users')) {
              return { 
                success: false, 
-               message: 'FALTA LA TABLA "pky_users". Ejecuta el código SQL en phpMyAdmin para arreglarlo.' 
+               message: 'Bloqueo de Backend: La tabla "pky_users" no existe o no está permitida en index.php.' 
              };
         }
 

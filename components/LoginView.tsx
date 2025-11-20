@@ -10,7 +10,6 @@ const LoginView: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [showSql, setShowSql] = useState(false); // Toggle for SQL helper
   const [isLoading, setIsLoading] = useState(false);
   const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || '');
   const [configMode, setConfigMode] = useState(!api.isConfigured());
@@ -18,7 +17,6 @@ const LoginView: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setShowSql(false);
     setIsLoading(true);
 
     if (!username || !password) {
@@ -35,10 +33,6 @@ const LoginView: React.FC = () => {
                 setIsRegistering(false);
             } else {
                 setError(res.message || 'Error al registrar');
-                // Auto-show SQL if the specific error is detected
-                if ((res.message || '').includes('FALTA LA TABLA')) {
-                    setShowSql(true);
-                }
             }
         } else {
             const success = await login(username, password);
@@ -144,11 +138,17 @@ const LoginView: React.FC = () => {
                         <span>{error}</span>
                     </div>
                     
-                    {(error.includes('FALTA LA TABLA') || error.includes('missing table')) && (
-                        <div className="mt-3 pt-3 border-t border-rose-900/50">
-                            <p className="text-xs text-rose-300 mb-2">Para arreglar esto, ejecuta este código en phpMyAdmin:</p>
-                            <div className="bg-slate-950 p-2 rounded border border-slate-700 relative">
-                                <pre className="text-[10px] text-emerald-400 font-mono whitespace-pre-wrap overflow-x-auto">
+                    {(error.includes('Bloqueo de Backend') || error.includes('missing table')) && (
+                        <div className="mt-3 pt-3 border-t border-rose-900/50 text-left">
+                            <p className="text-xs text-white font-bold mb-2">POSIBLES SOLUCIONES:</p>
+                            
+                            <div className="space-y-4">
+                                <div>
+                                    <p className="text-[10px] text-slate-300 mb-1">1. ¿Creaste la tabla en SQL?</p>
+                                    <details className="group">
+                                        <summary className="text-[10px] text-blue-400 cursor-pointer hover:underline">Ver código SQL</summary>
+                                        <div className="bg-slate-950 p-2 rounded border border-slate-700 mt-1">
+                                            <pre className="text-[10px] text-emerald-400 font-mono whitespace-pre-wrap overflow-x-auto">
 {`CREATE TABLE IF NOT EXISTS pky_users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   username VARCHAR(50) NOT NULL UNIQUE,
@@ -156,9 +156,33 @@ const LoginView: React.FC = () => {
   role VARCHAR(20) DEFAULT 'user',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );`}
-                                </pre>
+                                            </pre>
+                                        </div>
+                                    </details>
+                                </div>
+
+                                <div>
+                                    <p className="text-[10px] text-slate-300 mb-1">2. ¿Actualizaste el index.php?</p>
+                                    <p className="text-[10px] text-slate-400 mb-1">Si la tabla YA existe, el problema es que <b>index.php</b> no la permite. Añádela a la lista:</p>
+                                    <details className="group" open>
+                                        <summary className="text-[10px] text-blue-400 cursor-pointer hover:underline">Ver código PHP (Hostinger)</summary>
+                                        <div className="bg-slate-950 p-2 rounded border border-slate-700 mt-1">
+                                            <pre className="text-[10px] text-yellow-200 font-mono whitespace-pre-wrap overflow-x-auto">
+{`// Busca esta línea en tu index.php:
+$allowed_tables = [
+  'pky_transactions', 
+  'pky_liquidity', 
+  'pky_portfolios', 
+  'pky_asset_types', 
+  'pky_allocation_targets',
+  'pky_users',     // <--- AÑADE ESTA LÍNEA
+  'pky_settings'   // <--- Y ESTA
+];`}
+                                            </pre>
+                                        </div>
+                                    </details>
+                                </div>
                             </div>
-                            <p className="text-[10px] text-slate-400 mt-1 italic">Copia el texto verde y pégalo en la pestaña SQL de tu base de datos.</p>
                         </div>
                     )}
                 </div>
@@ -178,7 +202,7 @@ const LoginView: React.FC = () => {
             <p className="text-slate-400 text-sm">
                 {isRegistering ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?'}
                 <button 
-                    onClick={() => { setIsRegistering(!isRegistering); setError(''); setShowSql(false); }}
+                    onClick={() => { setIsRegistering(!isRegistering); setError(''); }}
                     className="ml-2 text-blue-400 hover:text-blue-300 font-medium hover:underline"
                     disabled={isLoading}
                 >
