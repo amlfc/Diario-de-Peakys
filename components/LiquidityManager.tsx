@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { db } from '../db';
 import { Icons } from './ui/Icons';
@@ -22,6 +22,44 @@ const LiquidityManager: React.FC = () => {
 
   const formatCurrency = (val: number) => 
     new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(val);
+
+  // --- DATA SANITIZATION ---
+  const toNumber = (val: any): number => {
+    if (typeof val === 'number' && !isNaN(val)) return val;
+    if (val === null || val === undefined || val === '') return 0;
+    
+    const str = String(val).trim();
+    let normalized = str;
+    if (str.includes(',') && !str.includes('.')) {
+      normalized = str.replace(',', '.');
+    }
+    
+    const parsed = parseFloat(normalized);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const sanitizedEvents = useMemo(() => {
+    if (!Array.isArray(liquidityEvents)) return [];
+    
+    return liquidityEvents.map(evt => {
+      // Check for common DB field variations (camelCase vs snake_case)
+      const rawAmount = (evt as any).amountEur ?? (evt as any).amount_eur ?? (evt as any).amount ?? (evt as any).importe;
+      const amountEur = toNumber(rawAmount);
+      
+      return {
+        ...evt,
+        amountEur,
+        // Ensure other fields exist
+        date: evt.date || '',
+        portfolio: evt.portfolio || 'Desconocido',
+        type: evt.type || (amountEur >= 0 ? 'Ingreso' : 'Retirada')
+      };
+    });
+  }, [liquidityEvents]);
+
+  const sortedEvents = [...sanitizedEvents].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const netTotal = useMemo(() => sortedEvents.reduce((acc, curr) => acc + curr.amountEur, 0), [sortedEvents]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,8 +88,6 @@ const LiquidityManager: React.FC = () => {
       await db.liquidity.delete(id);
     }
   };
-
-  const sortedEvents = [...liquidityEvents].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -115,8 +151,8 @@ const LiquidityManager: React.FC = () => {
            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-sm">
               <div className="px-6 py-4 border-b border-slate-700 flex justify-between items-center">
                 <h3 className="text-lg font-medium text-slate-100">Historial de Movimientos</h3>
-                <span className={`text-sm font-mono px-3 py-1 rounded border ${sortedEvents.reduce((acc, curr) => acc + curr.amountEur, 0) >= 0 ? 'bg-emerald-900/20 border-emerald-900/50 text-emerald-400' : 'bg-rose-900/20 border-rose-900/50 text-rose-400'}`}>
-                   Neto Total: {formatCurrency(sortedEvents.reduce((acc, curr) => acc + curr.amountEur, 0))}
+                <span className={`text-sm font-mono px-3 py-1 rounded border ${netTotal >= 0 ? 'bg-emerald-900/20 border-emerald-900/50 text-emerald-400' : 'bg-rose-900/20 border-rose-900/50 text-rose-400'}`}>
+                   Neto Total: {formatCurrency(netTotal)}
                 </span>
               </div>
               <div className="overflow-x-auto max-h-[600px]">
@@ -128,10 +164,13 @@ const LiquidityManager: React.FC = () => {
                        {sortedEvents.length === 0 ? (
                          <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">No hay movimientos registrados.</td></tr>
                        ) : (
-                         sortedEvents.map((evt) => {
+                         sortedEvents.map((evt, idx) => {
                            const isNegative = evt.amountEur < 0;
+                           // Fallback key
+                           const rowKey = evt.id ? evt.id : `liq-${idx}-${evt.date}`;
+                           
                            return (
-                            <tr key={evt.id} className="hover:bg-slate-700/30">
+                            <tr key={rowKey} className="hover:bg-slate-700/30">
                                 <td className="px-6 py-4 text-slate-300 font-mono text-xs">{evt.date}</td>
                                 <td className="px-6 py-4 text-white font-medium">{evt.portfolio}</td>
                                 <td className="px-6 py-4 text-slate-300">
