@@ -28,60 +28,6 @@ declare global {
   }
 }
 
-// --- LOCAL INDEXEDDB HELPERS FOR FILE HANDLES ---
-// Necesitamos IndexedDB local porque los FileSystemHandles no se pueden enviar al servidor (MySQL)
-// Solo viven en el contexto del navegador local.
-const IDB_NAME = 'PeakysLocalDB';
-const IDB_STORE = 'handles';
-
-const openIDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(IDB_NAME, 1);
-    request.onupgradeneeded = (event: any) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains(IDB_STORE)) {
-        db.createObjectStore(IDB_STORE);
-      }
-    };
-    request.onsuccess = (event: any) => resolve(event.target.result);
-    request.onerror = (event: any) => reject(event.target.error);
-  });
-};
-
-const getHandle = async (key: string): Promise<FileSystemFileHandle | undefined> => {
-  const db = await openIDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readonly');
-    const store = tx.objectStore(IDB_STORE);
-    const req = store.get(key);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-};
-
-const saveHandle = async (key: string, handle: FileSystemFileHandle): Promise<void> => {
-  const db = await openIDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    const store = tx.objectStore(IDB_STORE);
-    const req = store.put(handle, key);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-};
-
-const deleteHandle = async (key: string): Promise<void> => {
-  const db = await openIDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    const store = tx.objectStore(IDB_STORE);
-    const req = store.delete(key);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-};
-// ------------------------------------------------
-
 class AutoSyncService {
   private fileHandle: FileSystemFileHandle | null = null;
   private isSyncing: boolean = false;
@@ -103,9 +49,9 @@ class AutoSyncService {
   // 0. Intentar recuperar el handle guardado en la sesión anterior
   private async restoreHandleFromDB() {
     try {
-      const handle = await getHandle('autoSyncHandle');
-      if (handle) {
-         this.fileHandle = handle;
+      const record = await db.settings.get('autoSyncHandle');
+      if (record && record.handle) {
+         this.fileHandle = record.handle;
          // Notificamos que "Podemos Restaurar" (aunque aún no tenemos permiso activo)
          this.updateStatus(false, true);
       }
@@ -131,10 +77,8 @@ class AutoSyncService {
         }],
       });
 
-      // Guardar el handle en DB Local para el futuro
-      if (this.fileHandle) {
-         await saveHandle('autoSyncHandle', this.fileHandle);
-      }
+      // Guardar el handle en DB para el futuro
+      await db.settings.put({ key: 'autoSyncHandle', handle: this.fileHandle });
 
       // Guardar inmediatamente para confirmar permisos y estado inicial
       await this.triggerSave();
@@ -172,7 +116,7 @@ class AutoSyncService {
        console.error("Error restaurando permiso", e);
        alert("El archivo vinculado ya no es válido. Por favor, vincúlalo de nuevo.");
        this.fileHandle = null;
-       await deleteHandle('autoSyncHandle');
+       await db.settings.delete('autoSyncHandle');
        this.updateStatus();
     }
   }

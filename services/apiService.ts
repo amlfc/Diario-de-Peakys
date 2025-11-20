@@ -1,74 +1,89 @@
 
-export const DEFAULT_API_URL = 'https://amlfc.es/api-peakys/index.php';
-
 export class ApiService {
+  public hasError = false;
   
   isConfigured(): boolean {
-    // Siempre devuelve true porque ahora tenemos un fallback por defecto
-    return true;
+    return !!localStorage.getItem('HOSTINGER_API_URL');
   }
 
   private getUrl() {
-    const stored = localStorage.getItem('HOSTINGER_API_URL');
-    // Si el usuario ha guardado una personalizada, usa esa. Si no, usa la oficial por defecto.
-    if (stored && stored.trim() !== '') {
-        return stored;
-    }
-    return DEFAULT_API_URL;
+    const url = localStorage.getItem('HOSTINGER_API_URL');
+    if (!url) return null;
+    return url;
   }
 
   async get(table: string) {
     const url = this.getUrl();
-    
-    try {
-      const res = await fetch(`${url}?table=${table}`);
-      if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-      
-      const json = await res.json();
+    if (!url) return [];
 
-      // Handle API-level errors (e.g., database connection failed in PHP)
+    try {
+      const res = await fetch(`${url}?table=${table}`, {
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (!res.ok) {
+        // Only mark as error for critical tables, ignore settings which is optional
+        if (table !== 'pky_settings') {
+            this.hasError = true;
+            console.warn(`[API] Fetch failed for ${table}: ${res.status} ${res.statusText}`);
+        }
+        return [];
+      }
+      
+      const text = await res.text();
+      let json: any;
+
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        this.hasError = true;
+        console.warn(`[API] Invalid JSON response for ${table}:`, text.substring(0, 50));
+        return [];
+      }
+
       if (json && json.success === false) {
-          // Special handling for pky_settings (optional feature)
-          if (table === 'pky_settings' && (json.error?.includes('Invalid or missing table') || json.error?.includes('not found'))) {
-             console.warn(`Cloud Sync unavailable: Table '${table}' not found in backend. Using local storage.`);
+          // If table is missing (common for pky_settings), just return empty without setting global error
+          if (table === 'pky_settings' && (json.error || '').includes('exist')) {
              return [];
           }
-          throw new Error(`API Logic Error: ${json.error || 'Unknown error'}`);
-      }
-
-      // CRITICAL FIX: Return only the data array. 
-      // If data is missing or not an array, return empty array to prevent "map is not a function"
-      return Array.isArray(json.data) ? json.data : [];
-
-    } catch (error: any) {
-      // Suppress loud errors for optional settings table
-      if (table === 'pky_settings') {
+          
+          // For other tables, it's a logic error
+          console.warn(`[API] Backend Error (${table}): ${json.error}`);
           return [];
       }
-      console.error(`Error fetching ${table}:`, error);
-      // Return empty on error to keep UI alive
+
+      // CRITICAL FIX: Ensure we always return an array
+      return Array.isArray(json.data) ? json.data : [];
+
+    } catch (error) {
+      this.hasError = true;
+      console.warn(`[API] Connection Error fetching ${table}`, error);
       return [];
     }
   }
 
   async add(table: string, data: any) {
+    // Safety Valve: Do not attempt writes if reads are failing
+    if (this.hasError) {
+        throw new Error("Offline Mode: Cannot write data because connection is unstable.");
+    }
+
     const url = this.getUrl();
+    if (!url) throw new Error("API URL no configurada. Ve a Configuración.");
 
     try {
       const res = await fetch(`${url}?table=${table}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify(data)
       });
       
-      if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
+      if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
       
-      const json = await res.json();
+      const text = await res.text();
+      const json = JSON.parse(text);
 
       if (json && json.success === false) {
-        if (table === 'pky_settings' && json.error?.includes('Invalid or missing table')) {
-             throw new Error("Cloud Sync not supported by backend (Table missing).");
-        }
         throw new Error(json.error || 'Error saving data');
       }
 
@@ -80,19 +95,23 @@ export class ApiService {
   }
 
   async update(table: string, id: number, data: any) {
+    if (this.hasError) throw new Error("Offline Mode: Write blocked.");
     const payload = { ...data, id };
     return this.add(table, payload);
   }
 
   async delete(table: string, id: number) {
+    if (this.hasError) throw new Error("Offline Mode: Write blocked.");
     const url = this.getUrl();
+    if (!url) throw new Error("API URL no configurada");
 
     try {
         const res = await fetch(`${url}?table=${table}&id=${id}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: { 'Accept': 'application/json' }
         });
         
-        if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
+        if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
         
         const json = await res.json();
 
@@ -108,14 +127,17 @@ export class ApiService {
   }
 
   async clear(table: string) {
+    if (this.hasError) throw new Error("Offline Mode: Write blocked.");
     const url = this.getUrl();
+    if (!url) throw new Error("API URL no configurada");
 
     try {
         const res = await fetch(`${url}?table=${table}&confirm=all`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: { 'Accept': 'application/json' }
         });
         
-        if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
+        if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
         
         const json = await res.json();
 

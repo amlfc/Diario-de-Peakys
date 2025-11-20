@@ -1,46 +1,26 @@
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import { db } from '../db';
+import { useLiveData } from '../hooks/useLiveData';
 import { Card } from './ui/Card';
 import { Icons } from './ui/Icons';
 import { importTransactionsFromExcel, exportTransactionsToExcel } from '../services/excelService';
-import { DEFAULT_API_URL } from '../services/apiService';
 
 const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   
   // API Config State
-  const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || DEFAULT_API_URL);
+  const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || '');
   const [isSavingApi, setIsSavingApi] = useState(false);
 
   // Price Feed State
-  const [priceFeedUrl, setPriceFeedUrl] = useState('');
+  const [priceFeedUrl, setPriceFeedUrl] = useState(localStorage.getItem('PRICE_FEED_URL') || '');
   const [isSavingUrl, setIsSavingUrl] = useState(false);
-  const [isLoadingUrl, setIsLoadingUrl] = useState(true);
-
-  useEffect(() => {
-     const loadSettings = async () => {
-         try {
-             // 1. Try DB
-             const dbUrl = await db.getSetting('PRICE_FEED_URL');
-             if (dbUrl) {
-                 setPriceFeedUrl(dbUrl);
-             } else {
-                 // 2. Fallback to local
-                 setPriceFeedUrl(localStorage.getItem('PRICE_FEED_URL') || '');
-             }
-         } catch(e) {
-             console.error(e);
-         } finally {
-             setIsLoadingUrl(false);
-         }
-     };
-     loadSettings();
-  }, []);
 
   const handleSaveApiUrl = () => {
     setIsSavingApi(true);
+    // Remove trailing slash if present for consistency
     const cleanUrl = apiUrl.trim().replace(/\/$/, '');
     localStorage.setItem('HOSTINGER_API_URL', cleanUrl);
     setTimeout(() => {
@@ -50,20 +30,14 @@ const SettingsView: React.FC = () => {
     }, 500);
   };
 
-  const handleSavePriceUrl = async () => {
+  const handleSavePriceUrl = () => {
     setIsSavingUrl(true);
-    try {
-        await db.saveSetting('PRICE_FEED_URL', priceFeedUrl.trim());
-        // Backup local just in case
-        localStorage.setItem('PRICE_FEED_URL', priceFeedUrl.trim());
-        
-        alert('URL de precios guardada en la nube. Se sincronizará en todos tus dispositivos.');
-        window.location.reload();
-    } catch (e) {
-        alert('Error al guardar en base de datos.');
-    } finally {
+    localStorage.setItem('PRICE_FEED_URL', priceFeedUrl.trim());
+    setTimeout(() => {
         setIsSavingUrl(false);
-    }
+        alert('URL de precios guardada. Los precios y divisas se actualizarán en el Dashboard.');
+        window.location.reload();
+    }, 500);
   };
 
   const handleClear = async () => {
@@ -119,7 +93,7 @@ const SettingsView: React.FC = () => {
                         type="text" 
                         value={apiUrl} 
                         onChange={(e) => setApiUrl(e.target.value)} 
-                        placeholder={DEFAULT_API_URL} 
+                        placeholder="https://tudominio.com/api-peakys/index.php" 
                         className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm font-mono"
                     />
                     <button onClick={handleSaveApiUrl} disabled={isSavingApi} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap">
@@ -129,20 +103,12 @@ const SettingsView: React.FC = () => {
             </div>
         </Card>
 
-        <Card title="Fuente de Datos (Google Sheets - Sincronizado)">
+        <Card title="Fuente de Datos (Google Sheets)">
            <div className="space-y-4">
-              <p className="text-xs text-slate-400">Esta URL se guardará en la base de datos y se compartirá automáticamente con tu móvil y otros dispositivos.</p>
               <div className="flex gap-2 mt-2">
-                 <input 
-                    type="text" 
-                    value={priceFeedUrl} 
-                    onChange={(e) => setPriceFeedUrl(e.target.value)} 
-                    placeholder={isLoadingUrl ? "Cargando configuración..." : "https://docs.google.com/spreadsheets/d/..."} 
-                    disabled={isLoadingUrl}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"
-                 />
-                 <button onClick={handleSavePriceUrl} disabled={isSavingUrl || isLoadingUrl} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap">
-                   {isSavingUrl ? 'Guardando...' : 'Guardar en Nube'}
+                 <input type="text" value={priceFeedUrl} onChange={(e) => setPriceFeedUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"/>
+                 <button onClick={handleSavePriceUrl} disabled={isSavingUrl} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap">
+                   {isSavingUrl ? '...' : 'Guardar URL'}
                  </button>
               </div>
            </div>

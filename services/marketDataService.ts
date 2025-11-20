@@ -10,12 +10,24 @@ import {
   LiquidityEvent
 } from '../types';
 
-// STATIC FALLBACK RATES (Only used if Feed fails completely)
+// Simulates GOOGLEFINANCE calls (Fallback)
+const MOCK_PRICES: Record<string, number> = {
+  'AAPL': 175.50,
+  'MSFT': 320.10,
+  'VWRL': 105.20,
+  'TSLA': 240.00,
+  'GOOGL': 140.00,
+  'AMZN': 130.00,
+  'NVDA': 450.00,
+  'BTC': 35000.00
+};
+
+// STATIC FALLBACK RATES 
 const FALLBACK_FX_RATES: Record<string, number> = {
-  [Currency.USD]: 0.92, 
+  [Currency.USD]: 0.94, 
   [Currency.EUR]: 1.0,
-  [Currency.GBP]: 1.17,
-  [Currency.CHF]: 1.03,
+  [Currency.GBP]: 1.15,
+  [Currency.CHF]: 1.06,
   [Currency.CAD]: 0.68,
   [Currency.JPY]: 0.006,
   [Currency.AUD]: 0.60,
@@ -67,15 +79,8 @@ const isBuyOperation = (type: string): boolean => {
 
 // --- END HELPERS ---
 
-const getCsvUrl = async (): Promise<string | null> => {
-  // 1. Try Database (Cloud Sync)
-  let rawUrl = await db.getSetting('PRICE_FEED_URL');
-  
-  // 2. Fallback to LocalStorage (Migration support)
-  if (!rawUrl) {
-      rawUrl = localStorage.getItem('PRICE_FEED_URL');
-  }
-
+const getCsvUrl = (): string | null => {
+  const rawUrl = localStorage.getItem('PRICE_FEED_URL');
   if (!rawUrl) return null;
 
   const match = rawUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
@@ -134,67 +139,61 @@ const parsePriceValue = (str: string): number => {
 };
 
 const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
-  const csvUrl = await getCsvUrl();
+  const csvUrl = getCsvUrl();
   
-  // Return cache if valid
   if (Date.now() - lastFetchTime < CACHE_DURATION && Object.keys(cachedMarketData).length > 0) {
     return cachedMarketData;
   }
 
-  // Reset data (No MOCK data anymore)
-  const newMarketData: Record<string, MarketData> = {};
-
-  if (!csvUrl) {
-      console.log("No Price Feed URL configured.");
-      cachedMarketData = newMarketData;
-      return newMarketData;
-  }
+  if (!csvUrl) return {};
 
   try {
     const response = await fetch(csvUrl);
     if (!response.ok) throw new Error('Network response was not ok');
     const text = await response.text();
     
+    const newMarketData: Record<string, MarketData> = {};
     const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
     
-    if (lines.length > 0) {
-        let delimiter = ',';
-        const sampleText = lines.slice(0, 5).join('');
-        if (sampleText.includes(';')) {
-            delimiter = ';';
-        }
+    if (lines.length === 0) return {};
 
-        let tickerIdx = 0;
-        let priceIdx = 1;
-        let currencyIdx = 2;
-
-        lines.forEach((line, index) => {
-          if (index === 0) {
-            const lowerLine = line.toLowerCase();
-            if (lowerLine.includes('ticker') || lowerLine.includes('simbolo')) {
-              return; 
-            }
-          }
-
-          const parts = splitCsvLine(line, delimiter);
-          
-          if (parts.length >= 2) {
-            const ticker = parts[tickerIdx].replace(/['"]/g, '').trim().toUpperCase();
-            const priceRaw = parts[priceIdx]; 
-            const currencyRaw = parts.length > 2 ? parts[currencyIdx].replace(/['"\s]/g, '').trim().toUpperCase() : undefined;
-            
-            const price = parsePriceValue(priceRaw);
-
-            if (ticker && !isNaN(price) && price > 0) {
-              newMarketData[ticker] = {
-                price,
-                currency: currencyRaw && currencyRaw.length >= 3 ? currencyRaw : undefined
-              };
-            }
-          }
-        });
-        console.log(`Live Data Fetched. Items: ${Object.keys(newMarketData).length}. Delimiter: '${delimiter}'`);
+    let delimiter = ',';
+    const sampleText = lines.slice(0, 5).join('');
+    if (sampleText.includes(';')) {
+        delimiter = ';';
     }
+
+    let tickerIdx = 0;
+    let priceIdx = 1;
+    let currencyIdx = 2;
+
+    lines.forEach((line, index) => {
+      if (index === 0) {
+        const lowerLine = line.toLowerCase();
+        if (lowerLine.includes('ticker') || lowerLine.includes('simbolo')) {
+          return; 
+        }
+      }
+
+      const parts = splitCsvLine(line, delimiter);
+      
+      if (parts.length >= 2) {
+        const ticker = parts[tickerIdx].replace(/['"]/g, '').trim().toUpperCase();
+        const priceRaw = parts[priceIdx]; 
+        const currencyRaw = parts.length > 2 ? parts[currencyIdx].replace(/['"\s]/g, '').trim().toUpperCase() : undefined;
+        
+        const price = parsePriceValue(priceRaw);
+
+        if (ticker && !isNaN(price) && price > 0) {
+          newMarketData[ticker] = {
+            price,
+            currency: currencyRaw && currencyRaw.length >= 3 ? currencyRaw : undefined
+          };
+        }
+      }
+    });
+
+    console.log(`Live Data Fetched. Items: ${Object.keys(newMarketData).length}. Delimiter: '${delimiter}'`);
 
     cachedMarketData = newMarketData;
     lastFetchTime = Date.now();
@@ -202,8 +201,7 @@ const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
 
   } catch (error) {
     console.error("Error fetching live prices:", error);
-    // On error, return empty. UI will show 0 or previous cache if available manually logic handled elsewhere.
-    return newMarketData;
+    return {};
   }
 };
 
@@ -211,7 +209,6 @@ export const getFxRateToEur = (currency: string): number => {
   if (currency === Currency.EUR) return 1;
   const pairTicker = `${currency}EUR`; 
   
-  // Try to find in cached market data
   const liveRate = cachedMarketData[pairTicker]?.price;
   
   if (typeof liveRate === 'number' && liveRate > 0) {
@@ -379,18 +376,14 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const fxFeedToEur = getFxRateToEur(effectiveFeedCurrency);
 
     // Calculate EUR Value
-    // LOGIC UPDATE: If Price is 0 (Fetch Failed), Value is 0. No fallback to cost.
-    // This alerts the user that something is wrong with the feed.
     const priceToUseInEur = rawFeedPrice > 0 
        ? adjustedFeedPrice * fxFeedToEur
-       : 0; 
+       : pos.avgPricePlatform * pos.avgFxRate;
 
     if (!isClosed) {
       pos.currentValueEur = pos.quantity * priceToUseInEur;
       pos.totalCostEur = pos.quantity * pos.avgPriceEur; 
       pos.unrealizedPnLEur = pos.currentValueEur - pos.totalCostEur;
-      // If price is 0, unrealizedPnLEur will be negative total cost.
-      
       pos.unrealizedPnLPct = pos.totalCostEur !== 0 ? (pos.unrealizedPnLEur / pos.totalCostEur) : 0;
       
       const fxOriginToEur = getFxRateToEur(pos.currencyOrigin);
