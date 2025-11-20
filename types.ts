@@ -60,6 +60,12 @@ export interface AssetAllocationTarget {
   targetPercentage: number; // e.g. 20 for 20%
 }
 
+export interface AppSetting {
+  id?: number;
+  setting_key: string;
+  setting_value: string;
+}
+
 export interface Transaction {
   id?: number; // Auto-incremented by Dexie
   date: string;

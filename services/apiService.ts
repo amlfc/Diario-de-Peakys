@@ -28,6 +28,11 @@ export class ApiService {
 
       // Handle API-level errors (e.g., database connection failed in PHP)
       if (json && json.success === false) {
+          // Special handling for pky_settings (optional feature)
+          if (table === 'pky_settings' && (json.error?.includes('Invalid or missing table') || json.error?.includes('not found'))) {
+             console.warn(`Cloud Sync unavailable: Table '${table}' not found in backend. Using local storage.`);
+             return [];
+          }
           throw new Error(`API Logic Error: ${json.error || 'Unknown error'}`);
       }
 
@@ -35,7 +40,11 @@ export class ApiService {
       // If data is missing or not an array, return empty array to prevent "map is not a function"
       return Array.isArray(json.data) ? json.data : [];
 
-    } catch (error) {
+    } catch (error: any) {
+      // Suppress loud errors for optional settings table
+      if (table === 'pky_settings') {
+          return [];
+      }
       console.error(`Error fetching ${table}:`, error);
       // Return empty on error to keep UI alive
       return [];
@@ -57,6 +66,9 @@ export class ApiService {
       const json = await res.json();
 
       if (json && json.success === false) {
+        if (table === 'pky_settings' && json.error?.includes('Invalid or missing table')) {
+             throw new Error("Cloud Sync not supported by backend (Table missing).");
+        }
         throw new Error(json.error || 'Error saving data');
       }
 

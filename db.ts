@@ -1,6 +1,6 @@
 
 import { api } from './services/apiService';
-import { Transaction, LiquidityEvent, Portfolio, AssetTypeEntity, AssetAllocationTarget, DefaultPortfolios, DefaultAssetTypes } from './types';
+import { Transaction, LiquidityEvent, Portfolio, AssetTypeEntity, AssetAllocationTarget, AppSetting, DefaultPortfolios, DefaultAssetTypes } from './types';
 
 // Sistema simple de Pub/Sub para notificar cambios a los componentes React
 type Listener = () => void;
@@ -30,8 +30,8 @@ class VirtualTable<T> {
                  const all = await this.toArray();
                  const filtered = (all as any[]).filter((item: any) => item[field] === value).filter(predicate);
                  for (const item of filtered) {
-                     if (item.id !== undefined) {
-                        await api.update(this.name, item.id, changes);
+                     if ((item as any).id !== undefined) {
+                        await api.update(this.name, (item as any).id, changes);
                      }
                  }
                  this.db.notify();
@@ -79,7 +79,7 @@ class VirtualDatabase {
   portfolios: VirtualTable<Portfolio>;
   assetTypes: VirtualTable<AssetTypeEntity>;
   allocationTargets: VirtualTable<AssetAllocationTarget>;
-  settings: any;
+  settings: VirtualTable<AppSetting>;
 
   private listeners: Listener[] = [];
 
@@ -90,12 +90,7 @@ class VirtualDatabase {
     this.portfolios = new VirtualTable('pky_portfolios', this);
     this.assetTypes = new VirtualTable('pky_asset_types', this);
     this.allocationTargets = new VirtualTable('pky_allocation_targets', this);
-    
-    this.settings = {
-        get: async () => null,
-        put: async () => null,
-        delete: async () => null
-    };
+    this.settings = new VirtualTable('pky_settings', this);
   }
 
   subscribe(listener: Listener) {
@@ -107,6 +102,30 @@ class VirtualDatabase {
 
   notify() {
     this.listeners.forEach(l => l());
+  }
+
+  // Helpers for Settings
+  async getSetting(key: string): Promise<string | null> {
+     try {
+         const items = await this.settings.where('setting_key').equals(key).toArray();
+         if (items.length > 0) return items[0].setting_value;
+         return null;
+     } catch (e) {
+         return null;
+     }
+  }
+
+  async saveSetting(key: string, value: string) {
+      try {
+          const items = await this.settings.where('setting_key').equals(key).toArray();
+          if (items.length > 0 && items[0].id) {
+              await this.settings.update(items[0].id, { setting_value: value });
+          } else {
+              await this.settings.add({ setting_key: key, setting_value: value });
+          }
+      } catch (e) {
+          console.error("Error saving setting", e);
+      }
   }
 }
 
