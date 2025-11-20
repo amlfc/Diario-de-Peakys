@@ -68,32 +68,32 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
         </div>
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI Grid - Mobile 2 cols, Tablet 2 cols, Desktop 4 cols */}
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         
         {/* 1. Patrimonio Total (Net Worth) */}
         <StatCard 
           title="Patrimonio Total"
           value={formatCurrency(totalEquity)}
-          subValue={`Retorno Global: ${formatPct(metrics.totalReturnPct)}`}
+          subValue={`Retorno: ${formatPct(metrics.totalReturnPct)}`}
           trend={isProfitable ? 'up' : 'down'}
           icon={<Icons.Wallet size={20} />}
         />
 
         {/* 2. Liquidez (Cash) */}
         <StatCard 
-          title="Liquidez Disponible"
+          title="Liquidez"
           value={formatCurrency(metrics.availableCashEur)}
-          subValue={`(Aportado + G/P) - Invertido`}
+          subValue={`(In + G/P) - Out`}
           trend="neutral"
           icon={<Icons.Liquidity size={20} />}
         />
 
         {/* 3. Activos (Assets) */}
         <StatCard 
-          title="Valor en Activos"
+          title="Valor Activos"
           value={formatCurrency(metrics.totalValueEur)}
-          subValue={`G/P Latente: ${formatCurrency(metrics.unrealizedPnLEur)} (${formatPct(metrics.unrealizedPnLPct)})`}
+          subValue={`Latente: ${formatCurrency(metrics.unrealizedPnLEur)}`}
           trend={metrics.unrealizedPnLEur >= 0 ? 'up' : 'down'}
           icon={<Icons.Dashboard size={20} />}
         />
@@ -102,7 +102,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
         <StatCard 
           title="G/P Cerrada"
           value={formatCurrency(metrics.realizedPnLEur)}
-          subValue="Operaciones cerradas"
+          subValue="Realizado"
           trend={metrics.realizedPnLEur >= 0 ? 'up' : 'down'}
           icon={<Icons.Transactions size={20} />}
         />
@@ -110,7 +110,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
 
       {/* Main Chart Section: Performance Cost vs Value */}
       <Card title="Rendimiento por Posición (Coste vs Valor Actual)">
-        <div className="h-80 w-full">
+        <div className="h-64 md:h-80 w-full">
           {performanceData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart 
@@ -153,7 +153,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
           )}
         </div>
         <p className="text-xs text-center text-slate-500 mt-2">
-          * La barra de color indica el Valor Actual (Verde = Ganancia, Rojo = Pérdida). La barra gris indica el Coste (Precio + Comisiones).
+          * La barra de color indica el Valor Actual (Verde = Ganancia, Rojo = Pérdida). La barra gris indica el Coste.
         </p>
       </Card>
 

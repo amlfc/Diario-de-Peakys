@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   LayoutDashboard, 
@@ -12,7 +13,12 @@ import {
   Smartphone,
   ArrowRightLeft,
   Trash2,
-  Coins
+  Coins,
+  Save,
+  FileSpreadsheet,
+  FileText,
+  BarChart2,
+  Target
 } from 'lucide-react';
 
 export const Icons = {
@@ -28,5 +34,10 @@ export const Icons = {
   Mobile: Smartphone,
   Arrow: ArrowRightLeft,
   Trash: Trash2,
-  Liquidity: Coins
+  Liquidity: Coins,
+  Save: Save,
+  Excel: FileSpreadsheet,
+  PDF: FileText,
+  Chart: BarChart2,
+  Target: Target
 };
