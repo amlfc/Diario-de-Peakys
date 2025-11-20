@@ -20,7 +20,18 @@ export class ApiService {
     try {
       const res = await fetch(`${url}?table=${table}`);
       if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-      return await res.json();
+      
+      const json = await res.json();
+
+      // Handle API-level errors (e.g., database connection failed in PHP)
+      if (json && json.success === false) {
+          throw new Error(`API Logic Error: ${json.error || 'Unknown error'}`);
+      }
+
+      // CRITICAL FIX: Return only the data array. 
+      // If data is missing or not an array, return empty array to prevent "map is not a function"
+      return Array.isArray(json.data) ? json.data : [];
+
     } catch (error) {
       console.error(`Error fetching ${table}:`, error);
       // Return empty on error to keep UI alive
@@ -38,8 +49,16 @@ export class ApiService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
+      
       if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-      return await res.json();
+      
+      const json = await res.json();
+
+      if (json && json.success === false) {
+        throw new Error(json.error || 'Error saving data');
+      }
+
+      return json.data;
     } catch (error) {
       console.error(`Error adding to ${table}:`, error);
       throw error;
@@ -59,8 +78,16 @@ export class ApiService {
         const res = await fetch(`${url}?table=${table}&id=${id}`, {
             method: 'DELETE'
         });
+        
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-        return await res.json();
+        
+        const json = await res.json();
+
+        if (json && json.success === false) {
+            throw new Error(json.error || 'Error deleting data');
+        }
+
+        return json.data;
     } catch (error) {
         console.error(`Error deleting from ${table}:`, error);
         throw error;
@@ -75,8 +102,16 @@ export class ApiService {
         const res = await fetch(`${url}?table=${table}&confirm=all`, {
             method: 'DELETE'
         });
+        
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-        return await res.json();
+        
+        const json = await res.json();
+
+        if (json && json.success === false) {
+            throw new Error(json.error || 'Error clearing table');
+        }
+
+        return json.data;
     } catch (error) {
         console.error(`Error clearing ${table}:`, error);
         throw error;
