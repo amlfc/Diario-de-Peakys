@@ -10,6 +10,7 @@ const LoginView: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [showSql, setShowSql] = useState(false); // Toggle for SQL helper
   const [isLoading, setIsLoading] = useState(false);
   const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || '');
   const [configMode, setConfigMode] = useState(!api.isConfigured());
@@ -17,6 +18,7 @@ const LoginView: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setShowSql(false);
     setIsLoading(true);
 
     if (!username || !password) {
@@ -33,11 +35,14 @@ const LoginView: React.FC = () => {
                 setIsRegistering(false);
             } else {
                 setError(res.message || 'Error al registrar');
+                // Auto-show SQL if the specific error is detected
+                if ((res.message || '').includes('FALTA LA TABLA')) {
+                    setShowSql(true);
+                }
             }
         } else {
             const success = await login(username, password);
             if (!success) {
-                // Mejora: Detectar si el fallo fue por conexión/DB o credenciales
                 if (api.hasError) {
                     setError('Error de conexión con la Base de Datos. Revisa que las tablas existan en Hostinger.');
                 } else {
@@ -90,7 +95,6 @@ const LoginView: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Background Decorations */}
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-purple-600/20 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -134,8 +138,29 @@ const LoginView: React.FC = () => {
             </div>
 
             {error && (
-                <div className="p-3 bg-rose-900/30 border border-rose-900/50 rounded text-rose-400 text-sm flex items-center gap-2">
-                    <Icons.Trash size={16} /> {error}
+                <div className="p-3 bg-rose-900/30 border border-rose-900/50 rounded text-rose-400 text-sm">
+                    <div className="flex items-center gap-2">
+                        <Icons.Trash size={16} className="shrink-0" /> 
+                        <span>{error}</span>
+                    </div>
+                    
+                    {(error.includes('FALTA LA TABLA') || error.includes('missing table')) && (
+                        <div className="mt-3 pt-3 border-t border-rose-900/50">
+                            <p className="text-xs text-rose-300 mb-2">Para arreglar esto, ejecuta este código en phpMyAdmin:</p>
+                            <div className="bg-slate-950 p-2 rounded border border-slate-700 relative">
+                                <pre className="text-[10px] text-emerald-400 font-mono whitespace-pre-wrap overflow-x-auto">
+{`CREATE TABLE IF NOT EXISTS pky_users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(50) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  role VARCHAR(20) DEFAULT 'user',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);`}
+                                </pre>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1 italic">Copia el texto verde y pégalo en la pestaña SQL de tu base de datos.</p>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -153,7 +178,7 @@ const LoginView: React.FC = () => {
             <p className="text-slate-400 text-sm">
                 {isRegistering ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?'}
                 <button 
-                    onClick={() => { setIsRegistering(!isRegistering); setError(''); }}
+                    onClick={() => { setIsRegistering(!isRegistering); setError(''); setShowSql(false); }}
                     className="ml-2 text-blue-400 hover:text-blue-300 font-medium hover:underline"
                     disabled={isLoading}
                 >
