@@ -437,7 +437,3 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
 
   return { activePositions, dashboard };
 };
-
-
-  return { activePositions, dashboard };
-};
