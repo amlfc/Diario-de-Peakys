@@ -1,4 +1,3 @@
-
 import { db } from '../db';
 import { 
   Transaction, 
@@ -50,11 +49,9 @@ const toNumber = (val: any): number => {
   if (typeof val === 'number' && !isNaN(val)) return val;
   if (val === null || val === undefined || val === '') return 0;
   
-  // Handle strings
   const str = String(val).trim();
   
-  // Standardize decimal separator: replace comma with dot if it looks like a decimal
-  // Heuristic: if it has comma but no dot, treat comma as dot.
+  // Estándar decimal: si tiene coma pero no punto, tratamos la coma como punto
   let normalized = str;
   if (str.includes(',') && !str.includes('.')) {
     normalized = str.replace(',', '.');
@@ -72,7 +69,7 @@ const resolveKey = (obj: any, keys: string[]): any => {
 };
 
 const isBuyOperation = (type: string): boolean => {
-  if (!type) return true; // Default safest
+  if (!type) return true; // Default más seguro
   const t = String(type).toLowerCase();
   return t.includes('compra') || t.includes('buy') || t === 'b' || t === 'c';
 };
@@ -91,7 +88,7 @@ const getCsvUrl = (): string | null => {
   return rawUrl;
 };
 
-// Helper to properly split CSV lines respecting quotes
+// Helper para partir CSV respetando comillas
 const splitCsvLine = (text: string, delimiter: string): string[] => {
   const result: string[] = [];
   let current = '';
@@ -131,7 +128,7 @@ const parsePriceValue = (str: string): number => {
       val = val.replace(/,/g, '');
     }
   } else if (val.includes(',')) {
-      val = val.replace(',', '.');
+    val = val.replace(',', '.');
   }
 
   const result = parseFloat(val);
@@ -141,6 +138,7 @@ const parsePriceValue = (str: string): number => {
 const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
   const csvUrl = getCsvUrl();
   
+  // Cache de 1 minuto
   if (Date.now() - lastFetchTime < CACHE_DURATION && Object.keys(cachedMarketData).length > 0) {
     return cachedMarketData;
   }
@@ -160,7 +158,7 @@ const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
     let delimiter = ',';
     const sampleText = lines.slice(0, 5).join('');
     if (sampleText.includes(';')) {
-        delimiter = ';';
+      delimiter = ';';
     }
 
     let tickerIdx = 0;
@@ -212,21 +210,20 @@ export const getFxRateToEur = (currency: string): number => {
   const liveRate = cachedMarketData[pairTicker]?.price;
   
   if (typeof liveRate === 'number' && liveRate > 0) {
-      return liveRate;
+    return liveRate;
   }
   
   return FALLBACK_FX_RATES[currency] || 1;
 };
 
 export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioOwner | 'ALL') => {
-  
-  // 1. Fetch Live Prices & Metadata FIRST
-  await fetchPricesFromSheet(); 
+  // 1. Cargamos precios y divisas de la hoja
+  await fetchPricesFromSheet();
 
   let transactions: any[] = [];
   let liquidity: any[] = [];
 
-  // Fetch raw data (might contain snake_case keys or strings)
+  // Cargar datos crudos (pueden venir con snake_case, etc.)
   if (selectedPortfolio === 'ALL') {
     transactions = await db.transactions.toArray();
     liquidity = await db.liquidity.toArray();
@@ -236,16 +233,28 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   }
 
   const positionMap = new Map<string, Position>();
+
+  // Liquidez inicial (tabla liquidity) ya en EUR
+  const baseCashEur = liquidity.reduce((acc, rawItem) => {
+    const val = toNumber(resolveKey(rawItem, ['amountEur', 'amount_eur', 'amount', 'importe']));
+    return acc + val;
+  }, 0);
+
+  // Caja que iremos ajustando compra a compra / venta a venta
+  let cashEur = baseCashEur;
+
+  // Ordenamos TODAS las operaciones cronológicamente
   transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   transactions.forEach(rawTx => {
-    // SANITIZE TRANSACTION DATA
-    const quantity = toNumber(resolveKey(rawTx, ['quantity', 'qty', 'cantidad']));
+    // --- Sanitización de campos numéricos ---
+    const rawQuantity = toNumber(resolveKey(rawTx, ['quantity', 'qty', 'cantidad']));
+    const quantity = Math.abs(rawQuantity); // signo lo decide el tipo (Compra/Venta)
     const price = toNumber(resolveKey(rawTx, ['price', 'precio', 'coste']));
     const commission = toNumber(resolveKey(rawTx, ['commission', 'comision', 'fees']));
     const rawFx = resolveKey(rawTx, ['fxRateToEur', 'fx_rate_to_eur', 'tipo_cambio', 'fxRate']);
-    const fxRateToEur = toNumber(rawFx) || 1; // Default to 1 if missing/zero
-    
+    const fxRateToEur = toNumber(rawFx) || 1; // si no hay dato, asumimos 1
+
     const ticker = (rawTx.ticker || '').toUpperCase();
     const portfolio = rawTx.portfolio || 'Unknown';
     const assetName = resolveKey(rawTx, ['assetName', 'asset_name', 'nombre']) || ticker;
@@ -253,16 +262,15 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const currencyPlatform = resolveKey(rawTx, ['currencyPlatform', 'currency_platform', 'divisa']) || Currency.EUR;
     const typeStr = resolveKey(rawTx, ['type', 'tipo', 'operacion']);
 
-    // Determine if BUY or SELL using robust check
     const isBuy = isBuyOperation(typeStr);
 
     const key = `${portfolio}-${ticker}`;
     let pos = positionMap.get(key);
 
-    // SAFETY CHECK: Force FX Rate to 1 if Currency is EUR
+    // FX efectivo: si la divisa es EUR forzamos 1
     let effectiveFxRate = fxRateToEur;
     if (currencyPlatform === Currency.EUR) {
-        effectiveFxRate = 1;
+      effectiveFxRate = 1;
     }
 
     if (!pos) {
@@ -272,78 +280,85 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
         portfolio,
         assetType,
         currencyPlatform,
-        currencyOrigin: currencyPlatform, 
+        currencyOrigin: currencyPlatform,
         quantity: 0,
         avgPricePlatform: 0,
         avgFxRate: 0,
         avgPriceEur: 0,
         totalCostEur: 0,
-        totalCostOrigin: 0, 
+        totalCostOrigin: 0,
         currentPriceOrigin: 0,
         currentFxRateToEur: 0,
         currentValueEur: 0,
-        currentValueOrigin: 0, 
+        currentValueOrigin: 0,
         unrealizedPnLEur: 0,
-        unrealizedPnLOrigin: 0, 
+        unrealizedPnLOrigin: 0,
         unrealizedPnLPct: 0,
         realizedPnLEur: 0
       };
     }
 
     if (isBuy) {
+      // === COMPRA ===
       const totalCostOldEur = pos.quantity * pos.avgPriceEur;
-      
-      // Cost Basis Calculation
+
       const buyCommissionEur = commission * effectiveFxRate;
-      const txCostOrigin = (quantity * price) + commission; 
-      const txCostEur = (quantity * price * effectiveFxRate) + buyCommissionEur;
-      
+      const txCostOrigin = (quantity * price) + commission;               // en divisa de plataforma
+      const txCostEur    = (quantity * price * effectiveFxRate) + buyCommissionEur;
+
       const newQuantity = pos.quantity + quantity;
-      
+
       const newTotalCostOrigin = pos.totalCostOrigin + txCostOrigin;
-      const newTotalCostEur = totalCostOldEur + txCostEur;
+      const newTotalCostEur    = totalCostOldEur + txCostEur;
 
       if (newQuantity > 0) {
-          pos.quantity = newQuantity;
-          
-          // Weighted Averages
-          pos.avgPriceEur = newTotalCostEur / newQuantity;
-          pos.avgPricePlatform = newTotalCostOrigin / newQuantity;
-          
-          pos.totalCostOrigin = newTotalCostOrigin;
+        pos.quantity = newQuantity;
 
-          if (pos.totalCostOrigin > 0) {
-             pos.avgFxRate = newTotalCostEur / pos.totalCostOrigin;
-          } else {
-             pos.avgFxRate = effectiveFxRate;
-          }
+        pos.avgPriceEur      = newTotalCostEur / newQuantity;
+        pos.avgPricePlatform = newTotalCostOrigin / newQuantity;
+
+        pos.totalCostOrigin = newTotalCostOrigin;
+
+        if (pos.totalCostOrigin > 0) {
+          pos.avgFxRate = newTotalCostEur / pos.totalCostOrigin;
+        } else {
+          pos.avgFxRate = effectiveFxRate;
+        }
       }
+
+      // La caja baja por el coste total de la compra en EUR
+      cashEur -= txCostEur;
 
     } else {
-      // SELL LOGIC
-      const sellCommissionEur = commission * effectiveFxRate;
-      const sellValueGrossEur = (quantity * price * effectiveFxRate);
-      const sellValueNetEur = sellValueGrossEur - sellCommissionEur;
-      
-      // Cost of Goods Sold
-      const costOfSoldEur = quantity * pos.avgPriceEur;
-      
-      // Reduce Origin Cost proportionally
-      if (pos.quantity > 0) {
-          const proportion = quantity / pos.quantity;
-          pos.totalCostOrigin -= (pos.totalCostOrigin * proportion);
+      // === VENTA ===
+      if (pos.quantity <= 0) {
+        // Venta sin posición previa: seguridad mínima
+        return;
       }
+
+      const sellCommissionEur = commission * effectiveFxRate;
+      const sellValueGrossEur = quantity * price * effectiveFxRate;
+      const sellValueNetEur   = sellValueGrossEur - sellCommissionEur;
+
+      const costOfSoldEur = quantity * pos.avgPriceEur;
+
+      // Reducimos coste de origen proporcionalmente al tamaño vendido
+      const proportion = quantity / pos.quantity;
+      pos.totalCostOrigin -= (pos.totalCostOrigin * proportion);
 
       const pnl = sellValueNetEur - costOfSoldEur;
       pos.realizedPnLEur += pnl;
-      
+
       pos.quantity -= quantity;
+
+      // La caja sube por el ingreso neto de la venta en EUR
+      cashEur += sellValueNetEur;
     }
 
     positionMap.set(key, pos);
   });
 
-  // 2. Final Metrics with Live Data
+  // 2. Métricas finales a partir de posiciones y precios en tiempo real
   const activePositions: Position[] = [];
   const dashboard: DashboardMetrics = {
     totalValueEur: 0,
@@ -358,74 +373,71 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   };
 
   for (const pos of positionMap.values()) {
-    // Only count as active if quantity is significant (> 0.0001)
     const isClosed = pos.quantity <= 0.0001;
 
-    // Get Live Data
     const marketData = cachedMarketData[pos.ticker];
     const rawFeedPrice = marketData?.price || 0;
-    
     const feedCurrency = marketData?.currency || pos.currencyPlatform;
 
     let adjustedFeedPrice = rawFeedPrice;
     if (feedCurrency === 'GBp' || feedCurrency === 'GBX') {
-        adjustedFeedPrice = rawFeedPrice / 100;
+      adjustedFeedPrice = rawFeedPrice / 100;
     }
-    
-    const effectiveFeedCurrency = (feedCurrency === 'GBp' || feedCurrency === 'GBX') ? 'GBP' : feedCurrency;
+
+    const effectiveFeedCurrency =
+      (feedCurrency === 'GBp' || feedCurrency === 'GBX') ? 'GBP' : feedCurrency;
     const fxFeedToEur = getFxRateToEur(effectiveFeedCurrency);
 
-    // Calculate EUR Value
-    const priceToUseInEur = rawFeedPrice > 0 
-       ? adjustedFeedPrice * fxFeedToEur
-       : pos.avgPricePlatform * pos.avgFxRate;
+    const priceToUseInEur = rawFeedPrice > 0
+      ? adjustedFeedPrice * fxFeedToEur
+      : pos.avgPricePlatform * pos.avgFxRate;
 
     if (!isClosed) {
-      pos.currentValueEur = pos.quantity * priceToUseInEur;
-      pos.totalCostEur = pos.quantity * pos.avgPriceEur; 
-      pos.unrealizedPnLEur = pos.currentValueEur - pos.totalCostEur;
-      pos.unrealizedPnLPct = pos.totalCostEur !== 0 ? (pos.unrealizedPnLEur / pos.totalCostEur) : 0;
-      
+      pos.currentValueEur   = pos.quantity * priceToUseInEur;
+      pos.totalCostEur      = pos.quantity * pos.avgPriceEur;
+      pos.unrealizedPnLEur  = pos.currentValueEur - pos.totalCostEur;
+      pos.unrealizedPnLPct  = pos.totalCostEur !== 0 ? (pos.unrealizedPnLEur / pos.totalCostEur) : 0;
+
       const fxOriginToEur = getFxRateToEur(pos.currencyOrigin);
-      const safeFxOrigin = fxOriginToEur > 0 ? fxOriginToEur : 1;
-      
-      pos.currentFxRateToEur = safeFxOrigin; 
+      const safeFxOrigin  = fxOriginToEur > 0 ? fxOriginToEur : 1;
+
+      pos.currentFxRateToEur = safeFxOrigin;
       pos.currentValueOrigin = pos.currentValueEur / safeFxOrigin;
-      pos.currentPriceOrigin = priceToUseInEur / safeFxOrigin; 
+      pos.currentPriceOrigin = priceToUseInEur / safeFxOrigin;
       pos.unrealizedPnLOrigin = pos.currentValueOrigin - pos.totalCostOrigin;
 
       activePositions.push(pos);
 
       dashboard.totalValueEur += pos.currentValueEur;
-      dashboard.totalCostEur += pos.totalCostEur; 
+      dashboard.totalCostEur  += pos.totalCostEur;
       dashboard.unrealizedPnLEur += pos.unrealizedPnLEur;
     }
-    
+
     dashboard.realizedPnLEur += pos.realizedPnLEur;
   }
 
-  // SANITIZE LIQUIDITY CALCULATION
-  dashboard.totalLiquidityAddedEur = liquidity.reduce((acc, rawItem) => {
-      const val = toNumber(resolveKey(rawItem, ['amountEur', 'amount_eur', 'amount', 'importe']));
-      return acc + val;
-  }, 0);
+  // Liquidez inicial (depósitos/retiros manuales en la tabla liquidity)
+  dashboard.totalLiquidityAddedEur = baseCashEur;
 
-  dashboard.unrealizedPnLPct = dashboard.totalCostEur > 0 ? (dashboard.unrealizedPnLEur / dashboard.totalCostEur) : 0;
-  
-  const totalIngresado = dashboard.totalLiquidityAddedEur;
-  const totalGanadoCerrado = dashboard.realizedPnLEur; 
-  const totalGastadoActivo = dashboard.totalCostEur; 
-  
-  dashboard.availableCashEur = (totalIngresado + totalGanadoCerrado) - totalGastadoActivo;
+  // Caja actual calculada a partir de base + compras/ventas
+  dashboard.availableCashEur = cashEur;
+
+  dashboard.unrealizedPnLPct = dashboard.totalCostEur > 0
+    ? (dashboard.unrealizedPnLEur / dashboard.totalCostEur)
+    : 0;
 
   const currentEquity = dashboard.totalValueEur + dashboard.availableCashEur;
-  
+
   if (dashboard.totalLiquidityAddedEur > 0) {
-      const totalGain = currentEquity - dashboard.totalLiquidityAddedEur;
-      dashboard.totalReturnPct = totalGain / dashboard.totalLiquidityAddedEur;
+    const totalGain = currentEquity - dashboard.totalLiquidityAddedEur;
+    dashboard.totalReturnPct = totalGain / dashboard.totalLiquidityAddedEur;
   }
 
   dashboard.projectedCloseEur = currentEquity;
+
+  return { activePositions, dashboard };
+};
+
 
   return { activePositions, dashboard };
 };
