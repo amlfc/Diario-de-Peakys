@@ -93,6 +93,18 @@ export interface LiquidityEvent {
   notes?: string;
 }
 
+// Notes linked to a specific "position instance" (same ticker can be opened/closed multiple times)
+export interface PositionNote {
+  id?: number;
+  // Unique key for the position lifecycle: `${portfolio}-${ticker}-${openedDate}`
+  positionKey: string;
+  portfolio: PortfolioOwner;
+  ticker: string;
+  openedDate: string; // YYYY-MM-DD
+  note: string;
+  updatedAt: string; // ISO string
+}
+
 // Derived Entities (Calculated on the fly like the Excel "Posiciones" sheet)
 
 export interface Position {

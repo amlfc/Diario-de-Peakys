@@ -1,6 +1,6 @@
 
 import { api } from './services/apiService';
-import { Transaction, LiquidityEvent, Portfolio, AssetTypeEntity, AssetAllocationTarget, DefaultPortfolios, DefaultAssetTypes, User } from './types';
+import { Transaction, LiquidityEvent, Portfolio, AssetTypeEntity, AssetAllocationTarget, DefaultPortfolios, DefaultAssetTypes, User, PositionNote } from './types';
 
 // Sistema simple de Pub/Sub para notificar cambios a los componentes React
 type Listener = () => void;
@@ -80,6 +80,7 @@ class VirtualDatabase {
   assetTypes: VirtualTable<AssetTypeEntity>;
   allocationTargets: VirtualTable<AssetAllocationTarget>;
   users: VirtualTable<User>;
+  positionNotes: VirtualTable<PositionNote>;
   settings: any;
 
   private listeners: Listener[] = [];
@@ -92,6 +93,7 @@ class VirtualDatabase {
     this.assetTypes = new VirtualTable('pky_asset_types', this);
     this.allocationTargets = new VirtualTable('pky_allocation_targets', this);
     this.users = new VirtualTable('pky_users', this);
+    this.positionNotes = new VirtualTable('pky_position_notes', this);
     
     // Settings uses a specialized approach or reuses a table logic
     this.settings = {
