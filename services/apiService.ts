@@ -22,8 +22,9 @@ export class ApiService {
       });
 
       if (!res.ok) {
-        // Only mark as error for critical tables, ignore settings which is optional
-        if (table !== 'pky_settings') {
+        // Only mark as error for critical tables, ignore optional tables
+        const optional = table === 'pky_settings' || table === 'pky_position_notes';
+        if (!optional) {
             this.hasError = true;
             console.warn(`[API] Fetch failed for ${table}: ${res.status} ${res.statusText}`);
         }
@@ -42,8 +43,9 @@ export class ApiService {
       }
 
       if (json && json.success === false) {
-          // If table is missing (common for pky_settings), just return empty without setting global error
-          if (table === 'pky_settings' && (json.error || '').includes('exist')) {
+          // If table is missing (common for optional tables), just return empty without setting global error
+          const isMissingTable = (json.error || '').includes('exist');
+          if ((table === 'pky_settings' || table === 'pky_position_notes') && isMissingTable) {
              return [];
           }
           
