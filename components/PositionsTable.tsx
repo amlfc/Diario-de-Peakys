@@ -1,9 +1,10 @@
 
-import React from 'react';
-import { Position, Currency } from '../types';
+import React, { useMemo, useState } from 'react';
+import { Position, Currency, PositionNote, Transaction, TransactionType } from '../types';
 import { Icons } from './ui/Icons';
 import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { db } from '../db';
+import PositionNotesModal from './PositionNotesModal';
 
 interface PositionsTableProps {
   positions: Position[];
@@ -12,6 +13,17 @@ interface PositionsTableProps {
 const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
   
   const assetTypes = useLiveData(() => db.assetTypes.toArray()) || [];
+  const transactions = useLiveData(() => db.transactions.toArray()) || [];
+  const positionNotes = useLiveData(() => db.positionNotes.toArray()) || [];
+
+  const [notesModal, setNotesModal] = useState<{
+    open: boolean;
+    title: string;
+    key: string;
+    portfolio: string;
+    ticker: string;
+    initialNote: string;
+  }>({ open: false, title: '', key: '', portfolio: '', ticker: '', initialNote: '' });
 
   const formatCurrency = (val: number, currency: string = Currency.EUR) => 
     new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(val);
@@ -31,9 +43,78 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
     }
   };
 
+  const notesByKey = useMemo(() => {
+    const map = new Map<string, PositionNote>();
+    for (const n of positionNotes) {
+      if (n && n.positionKey) map.set(n.positionKey, n);
+    }
+    return map;
+  }, [positionNotes]);
+
+  const computePositionKey = (portfolio: string, ticker: string) => {
+    const txs = (transactions as Transaction[])
+      .filter(t => (t.portfolio || '') === portfolio && (t.ticker || '').toUpperCase() === ticker.toUpperCase())
+      .slice()
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let net = 0;
+    let lastOpenDate: string | null = null;
+
+    for (const tx of txs) {
+      const qty = typeof tx.quantity === 'number' ? tx.quantity : parseFloat(String(tx.quantity || 0));
+      const isBuy = tx.type === TransactionType.Buy;
+      const prev = net;
+      net = isBuy ? (net + qty) : (net - qty);
+
+      if (prev <= 0.0001 && net > 0.0001) {
+        lastOpenDate = tx.date;
+      }
+      // When net goes back to 0, the cycle is closed; next open will overwrite lastOpenDate
+    }
+
+    // Fallback: if we couldn't infer the open date, we still want a stable key
+    const openDate = lastOpenDate || 'UNKNOWN';
+    return `${portfolio}-${ticker}-${openDate}`;
+  };
+
+  const openNotes = (pos: Position) => {
+    const key = computePositionKey(pos.portfolio, pos.ticker);
+    const existing = notesByKey.get(key);
+    setNotesModal({
+      open: true,
+      title: `Notas · ${pos.ticker} · ${pos.portfolio}`,
+      key,
+      portfolio: pos.portfolio,
+      ticker: pos.ticker,
+      initialNote: existing?.note || ''
+    });
+  };
+
+  const saveNotes = async (key: string, portfolio: string, ticker: string, note: string) => {
+    const now = new Date().toISOString();
+    const existing = notesByKey.get(key);
+
+    if (existing && existing.id) {
+      await db.positionNotes.update(existing.id, { note, updatedAt: now });
+      return;
+    }
+
+    // Parse key to get openedDate
+    const openedDate = key.split('-').slice(2).join('-') || 'UNKNOWN';
+    await db.positionNotes.add({
+      positionKey: key,
+      portfolio,
+      ticker,
+      openedDate,
+      note,
+      updatedAt: now
+    });
+  };
+
   const sortedPositions = [...positions].sort((a, b) => b.currentValueEur - a.currentValueEur);
 
   return (
+    <>
     <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-sm">
       <div className="px-6 py-4 border-b border-slate-700 flex justify-between items-center">
         <h3 className="text-lg font-medium text-slate-100 flex items-center gap-2">
@@ -65,10 +146,25 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
                 const isProfitEur = pos.unrealizedPnLEur >= 0;
                 const isProfitOrigin = pos.unrealizedPnLOrigin >= 0;
                 const isDifferentCurrency = pos.currencyOrigin !== Currency.EUR;
+                const positionKey = computePositionKey(pos.portfolio, pos.ticker);
+                const noteText = notesByKey.get(positionKey)?.note || '';
+                const hasNote = noteText.trim().length > 0;
 
                 return (
                   <tr key={`${pos.portfolio}-${pos.ticker}`} className="hover:bg-slate-700/30 transition-colors">
-                    <td className="px-4 py-4 font-medium text-white">{pos.ticker}</td>
+                    <td className="px-4 py-4 font-medium text-white">
+                      <div className="flex items-center gap-2">
+                        <span>{pos.ticker}</span>
+                        <button
+                          type="button"
+                          onClick={() => openNotes(pos)}
+                          title={hasNote ? 'Ver/editar notas' : 'Añadir notas'}
+                          className={`p-1 rounded transition-colors ${hasNote ? 'text-emerald-400 hover:bg-emerald-900/20' : 'text-slate-400 hover:bg-slate-700/50'}`}
+                        >
+                          <Icons.PDF size={14} />
+                        </button>
+                      </div>
+                    </td>
                     <td className="px-4 py-4 text-slate-300 max-w-[150px] truncate" title={pos.assetName}>{pos.assetName}</td>
                     <td className="px-4 py-4">
                       <select 
@@ -105,6 +201,15 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
         </table>
       </div>
     </div>
+
+    <PositionNotesModal
+      isOpen={notesModal.open}
+      title={notesModal.title}
+      initialNote={notesModal.initialNote}
+      onClose={() => setNotesModal({ open: false, title: '', key: '', portfolio: '', ticker: '', initialNote: '' })}
+      onSave={(note) => saveNotes(notesModal.key, notesModal.portfolio, notesModal.ticker, note)}
+    />
+    </>
   );
 };
 
