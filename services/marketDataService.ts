@@ -240,8 +240,9 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     return acc + val;
   }, 0);
 
-  // Caja que iremos ajustando compra a compra / venta a venta
-  let cashEur = baseCashEur;
+  // Caja por divisa (para cuadrar con bróker y evitar deriva por FX histórico)
+  const cashByCurrency: Record<string, number> = {};
+  cashByCurrency[Currency.EUR] = baseCashEur;
 
   // Ordenamos TODAS las operaciones cronológicamente
   transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -326,8 +327,12 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
         }
       }
 
-      // La caja baja por el coste total de la compra en EUR
-      cashEur -= txCostEur;
+      // La caja baja por el coste total de la compra EN LA DIVISA de la operación
+      // (la conversión a EUR se hace al final con el FX actual)
+      const cashCcy = currencyPlatform as string;
+      if (!(rawTx as any).nonCash) {
+        cashByCurrency[cashCcy] = (cashByCurrency[cashCcy] || 0) - txCostOrigin;
+      }
 
     } else {
       // === VENTA ===
@@ -351,8 +356,12 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
 
       pos.quantity -= quantity;
 
-      // La caja sube por el ingreso neto de la venta en EUR
-      cashEur += sellValueNetEur;
+      // La caja sube por el ingreso neto de la venta EN LA DIVISA de la operación
+      const cashCcy = currencyPlatform as string;
+      const sellValueNetOrigin = (quantity * price) - commission;
+      if (!(rawTx as any).nonCash) {
+        cashByCurrency[cashCcy] = (cashByCurrency[cashCcy] || 0) + sellValueNetOrigin;
+      }
     }
 
     positionMap.set(key, pos);
@@ -419,7 +428,12 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   // Liquidez inicial (depósitos/retiros manuales en la tabla liquidity)
   dashboard.totalLiquidityAddedEur = baseCashEur;
 
-  // Caja actual calculada a partir de base + compras/ventas
+  // Caja actual en EUR: sumatorio por divisa con el FX vigente (mismo criterio que el bróker al mostrar 'base')
+  const cashEur = Object.entries(cashByCurrency).reduce((acc, [ccy, amt]) => {
+    const fx = getFxRateToEur(ccy);
+    return acc + (toNumber(amt) * fx);
+  }, 0);
+
   dashboard.availableCashEur = cashEur;
 
   dashboard.unrealizedPnLPct = dashboard.totalCostEur > 0
