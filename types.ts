@@ -81,6 +81,7 @@ export interface Transaction {
   commission: number; // In platform currency
   currencyPlatform: Currency;
   fxRateToEur: number; // Exchange rate at time of transaction
+  nonCash?: boolean; // Si true: ajusta posición/coste pero NO afecta a liquidez
   notes?: string;
 }
 
