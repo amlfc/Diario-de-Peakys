@@ -67,8 +67,8 @@ const ClosedOperationsAnalysis: React.FC<Props> = ({ transactions }) => {
      return result;
   }, [filteredTrades]);
 
-  const formatCurrency = (val: number) => 
-    new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
+  const formatByCurrency = (val: number, ccy: string) =>
+    new Intl.NumberFormat('es-ES', { style: 'currency', currency: ccy, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
   return (
     <div className="space-y-6 animate-fade-in">
       
