@@ -252,7 +252,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const rawQuantity = toNumber(resolveKey(rawTx, ['quantity', 'qty', 'cantidad']));
     const quantity = Math.abs(rawQuantity); // signo lo decide el tipo (Compra/Venta)
     const price = toNumber(resolveKey(rawTx, ['price', 'precio', 'coste']));
-    const commission = toNumber(resolveKey(rawTx, ['commission', 'comision', 'fees']));
+    const commission = Math.abs(toNumber(resolveKey(rawTx, ['commission', 'comision', 'fees'])));
     const rawFx = resolveKey(rawTx, ['fxRateToEur', 'fx_rate_to_eur', 'tipo_cambio', 'fxRate']);
     const fxRateToEur = toNumber(rawFx) || 1; // si no hay dato, asumimos 1
 
