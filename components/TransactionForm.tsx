@@ -124,7 +124,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Nombre Activo</label>
-          <input type="text" name="assetName" value={formData.assetName} onChange={handleChange} placeholder="Ej. Apple Inc" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none" required />
+          <input type="text" name="assetName" value={formData.assetName} onChange={handleChange} placeholder="Ej. Apple Inc" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none" />
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Tipo Activo</label>
