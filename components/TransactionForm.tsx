@@ -48,34 +48,38 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
     }
   }, [initialData]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const payload = {
-        date: formData.date,
-        portfolio: formData.portfolio as PortfolioOwner,
-        type: formData.type as TransactionType,
-        ticker: formData.ticker.toUpperCase(),
-        assetName: formData.assetName,
-        assetType: formData.assetType as AssetType,
-        quantity: parseFloat(formData.quantity),
-        price: parseFloat(formData.price),
-        commission: parseFloat(formData.commission),
-        currencyPlatform: formData.currencyPlatform as Currency,
-        fxRateToEur: parseFloat(formData.fxRateToEur),
-      };
+ const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  try {
+    const tickerUpper = (formData.ticker || "").toUpperCase().trim();
+    const assetNameSafe = (formData.assetName || "").trim() || tickerUpper;
 
-      if (initialData && initialData.id) {
-        await db.transactions.update(initialData.id, payload);
-      } else {
-        await db.transactions.add(payload);
-      }
-      onSuccess();
-    } catch (error) {
-      console.error("Error saving transaction:", error);
-      alert("Error al guardar la transacción");
+    const payload = {
+      date: formData.date,
+      portfolio: formData.portfolio as PortfolioOwner,
+      type: formData.type as TransactionType,
+      ticker: tickerUpper,
+      assetName: assetNameSafe,
+      assetType: formData.assetType as AssetType,
+      quantity: parseFloat(formData.quantity),
+      price: parseFloat(formData.price),
+      commission: parseFloat(formData.commission),
+      currencyPlatform: formData.currencyPlatform as Currency,
+      fxRateToEur: parseFloat(formData.fxRateToEur),
+    };
+
+    if (initialData && initialData.id) {
+      await db.transactions.update(initialData.id, payload);
+    } else {
+      await db.transactions.add(payload);
     }
-  };
+    onSuccess();
+  } catch (error) {
+    console.error("Error saving transaction:", error);
+    alert("Error al guardar la transacción");
+  }
+};
+
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
