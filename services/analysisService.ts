@@ -242,93 +242,120 @@ export const exportAnalysisToExcel = (trades: ClosedTrade[], metrics: AnalysisMe
   const wsSummary = utils.json_to_sheet(summaryData);
   utils.book_append_sheet(wb, wsSummary, "Resumen");
 
-  // Sheet 2: Detail
-  const detailData = trades.map(t => ({
-    Fecha: t.date,
-    Cartera: t.portfolio,
-    Ticker: t.ticker,
-    Activo: t.assetName,
-    'Tipo Venta': t.type,
-    'Cantidad': t.quantitySold,
-    'Precio Venta Neto (€)': t.sellPriceEur,
-    'Coste Base (€)': t.costBasisEur,
-    'Ingreso Total (€)': t.grossRevenueEur,
-    'Coste Total (€)': t.grossCostEur,
-    'P&L Neto (€)': t.netPnLEur,
-    'Retorno %': t.returnPct
-  }));
-  const wsDetail = utils.json_to_sheet(detailData);
-  utils.book_append_sheet(wb, wsDetail, "Detalle Operaciones");
+ // Sheet 2: Detail
+const detailData = trades.map((t: any) => ({
+  Fecha: t.date,
+  Cartera: t.portfolio,
+  Ticker: t.ticker,
+  Activo: t.assetName,
+  'Tipo Venta': t.type,
+  'Cantidad': t.quantitySold,
 
-  writeFile(wb, `Peakys_Informe_Analisis_${new Date().toISOString().split('T')[0]}.xlsx`);
+  // NUEVO: moneda
+  'Divisa': t.currency || t.currencyPlatform || 'EUR',
+
+  // NUEVO: en moneda de origen (si existe)
+  'Ingreso (moneda)': t.grossRevenueOrigin ?? '',
+  'Coste (moneda)': t.grossCostOrigin ?? '',
+  'P&L (moneda)': t.netPnLOrigin ?? '',
+
+  // EUR (lo que ya tenías)
+  'Precio Venta Neto (€)': t.sellPriceEur,
+  'Coste Base (€)': t.costBasisEur,
+  'Ingreso Total (€)': t.grossRevenueEur,
+  'Coste Total (€)': t.grossCostEur,
+  'P&L Neto (€)': t.netPnLEur,
+  'Retorno %': t.returnPct
+}));
+
+const wsDetail = utils.json_to_sheet(detailData);
+utils.book_append_sheet(wb, wsDetail, "Detalle Operaciones");
+
+writeFile(wb, `Peakys_Informe_Analisis_${new Date().toISOString().split('T')[0]}.xlsx`);
 };
 
 export const exportAnalysisToPDF = (trades: ClosedTrade[], metrics: AnalysisMetrics) => {
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.width;
+const doc = new jsPDF();
+const pageWidth = doc.internal.pageSize.width;
 
-  // Header
-  doc.setFontSize(18);
-  doc.setTextColor(40, 40, 40);
-  doc.text("Informe de Operaciones Cerradas - Diario de Peakys", 14, 20);
+// Header
+doc.setFontSize(18);
+doc.setTextColor(40, 40, 40);
+doc.text("Informe de Operaciones Cerradas - Diario de Peakys", 14, 20);
 
-  doc.setFontSize(10);
-  doc.setTextColor(100, 100, 100);
-  doc.text(`Generado el: ${new Date().toLocaleDateString()}`, 14, 26);
+doc.setFontSize(10);
+doc.setTextColor(100, 100, 100);
+doc.text(`Generado el: ${new Date().toLocaleDateString()}`, 14, 26);
 
-  // KPI Summary Box
-  const startY = 35;
-  const boxHeight = 30;
+// KPI Summary Box
+const startY = 35;
+const boxHeight = 30;
 
-  doc.setFillColor(240, 245, 250);
-  doc.rect(14, startY, pageWidth - 28, boxHeight, 'F');
+doc.setFillColor(240, 245, 250);
+doc.rect(14, startY, pageWidth - 28, boxHeight, 'F');
 
-  doc.setFontSize(12);
-  doc.setTextColor(0, 0, 0);
+doc.setFontSize(12);
+doc.setTextColor(0, 0, 0);
 
-  // Row 1
-  doc.text(
-    `Total P&L: ${new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(metrics.totalProfitEur)}`,
-    20, startY + 10
-  );
-  doc.text(`Tasa Acierto: ${(metrics.winRate * 100).toFixed(1)}%`, 80, startY + 10);
-  doc.text(`Factor Beneficio: ${metrics.profitFactor.toFixed(2)}`, 140, startY + 10);
+// Row 1
+doc.text(
+  `Total P&L: ${new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(metrics.totalProfitEur)}`,
+  20, startY + 10
+);
+doc.text(`Tasa Acierto: ${(metrics.winRate * 100).toFixed(1)}%`, 80, startY + 10);
+doc.text(`Factor Beneficio: ${metrics.profitFactor.toFixed(2)}`, 140, startY + 10);
 
-  // Row 2
-  doc.setFontSize(10);
-  doc.text(`Ops Totales: ${metrics.totalTrades}`, 20, startY + 20);
-  doc.text(`Media Gan.: €${metrics.avgWinEur.toFixed(2)}`, 80, startY + 20);
-  doc.text(`Media Pérd.: €${metrics.avgLossEur.toFixed(2)}`, 140, startY + 20);
+// Row 2
+doc.setFontSize(10);
+doc.text(`Ops Totales: ${metrics.totalTrades}`, 20, startY + 20);
+doc.text(`Media Gan.: €${metrics.avgWinEur.toFixed(2)}`, 80, startY + 20);
+doc.text(`Media Pérd.: €${metrics.avgLossEur.toFixed(2)}`, 140, startY + 20);
 
-  // Table
-  const tableColumn = ["Fecha", "Cartera", "Ticker", "Venta", "Coste (€)", "P&L (€)", "%"];
-  const tableRows = trades.map(t => [
+// Table (NUEVO: añadimos Divisa y P&L moneda)
+const tableColumn = ["Fecha", "Cartera", "Ticker", "Divisa", "Venta", "Coste (€)", "P&L (moneda)", "P&L (€)", "%"];
+
+const tableRows = trades.map((t: any) => {
+  const ccy = (t.currency || t.currencyPlatform || 'EUR') as string;
+
+  const pnlOrigin = typeof t.netPnLOrigin === 'number' ? t.netPnLOrigin : null;
+  const pnlOriginStr =
+    pnlOrigin === null
+      ? '-'
+      : new Intl.NumberFormat('es-ES', { style: 'currency', currency: ccy, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pnlOrigin);
+
+  return [
     t.date,
     t.portfolio,
     t.ticker,
-    t.type === 'Venta Total' ? 'Total' : 'Parcial',
-    t.grossCostEur.toFixed(0),
+    ccy,
+    (t.type === 'Venta Total' ? 'Total' : 'Parcial'),
+    t.grossCostEur.toFixed(2),
+    pnlOriginStr,
     t.netPnLEur.toFixed(2),
     (t.returnPct * 100).toFixed(2) + '%'
-  ]);
+  ];
+});
 
-  autoTable(doc, {
-    head: [tableColumn],
-    body: tableRows,
-    startY: startY + boxHeight + 10,
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [41, 128, 185] },
-    columnStyles: {
-      5: { fontStyle: 'bold' }
-    },
-    didParseCell: function (data: any) {
-      if (data.section === 'body' && data.column.index === 5) {
-        const val = parseFloat(data.cell.raw);
+autoTable(doc, {
+  head: [tableColumn],
+  body: tableRows,
+  startY: startY + boxHeight + 10,
+  styles: { fontSize: 8 },
+  headStyles: { fillColor: [41, 128, 185] },
+  columnStyles: {
+    7: { fontStyle: 'bold' } // columna P&L (€)
+  },
+  didParseCell: function (data: any) {
+    // Color P&L (€) column (index 7)
+    if (data.section === 'body' && data.column.index === 7) {
+      const val = parseFloat(data.cell.raw);
+      if (!isNaN(val)) {
         if (val >= 0) data.cell.styles.textColor = [20, 160, 100];
         else data.cell.styles.textColor = [200, 60, 60];
       }
     }
-  });
+  }
+});
 
-  doc.save(`Peakys_Informe_PDF_${new Date().toISOString().split('T')[0]}.pdf`);
+doc.save(`Peakys_Informe_PDF_${new Date().toISOString().split('T')[0]}.pdf`);
 };
