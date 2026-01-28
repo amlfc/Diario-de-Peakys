@@ -1,10 +1,12 @@
 
-import React, { useState, useEffect } from 'react';
-import { Position, DashboardMetrics, PortfolioOwner } from '../types';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Position, DashboardMetrics, PortfolioOwner, PositionNote } from '../types';
 import { Card } from './ui/Card';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { db } from '../db';
 import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
+import { Icons } from './ui/Icons';
+import PositionNotesModal from './PositionNotesModal';
 
 interface DiversificationProps {
   positions: Position[];
@@ -48,6 +50,26 @@ const TargetInput: React.FC<{
 const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, selectedPortfolio }) => {
   
   const allAssetTypes = useLiveData(() => db.assetTypes.toArray()) || [];
+  const positionNotes = useLiveData(() => db.positionNotes.toArray()) || [];
+
+  const notesByKey = useMemo(() => {
+    const map = new Map<string, PositionNote>();
+    for (const n of positionNotes) {
+      if (n && n.positionKey) map.set(n.positionKey, n);
+    }
+    return map;
+  }, [positionNotes]);
+
+  const [notesModal, setNotesModal] = useState<{
+    open: boolean;
+    title: string;
+    key: string;
+    portfolio: PortfolioOwner | null;
+    assetType: string;
+    initialNote: string;
+  }>({ open: false, title: '', key: '', portfolio: null, assetType: '', initialNote: '' });
+
+  const makeDivKey = (portfolio: PortfolioOwner, assetType: string) => `DIV-${portfolio}-${assetType}`;
   
   const targets = useLiveData(async () => {
     if (selectedPortfolio === 'ALL') return await db.allocationTargets.toArray();
@@ -86,6 +108,40 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
         targetPercentage: val
       });
     }
+  };
+
+  const openDivNotes = (assetType: string) => {
+    if (selectedPortfolio === 'ALL') return;
+    const key = makeDivKey(selectedPortfolio, assetType);
+    const existing = notesByKey.get(key);
+
+    setNotesModal({
+      open: true,
+      title: `Notas · ${assetType} · ${selectedPortfolio}`,
+      key,
+      portfolio: selectedPortfolio,
+      assetType,
+      initialNote: existing?.note || ''
+    });
+  };
+
+  const saveDivNotes = async (key: string, portfolio: PortfolioOwner, assetType: string, note: string) => {
+    const now = new Date().toISOString();
+    const existing = notesByKey.get(key);
+
+    if (existing && existing.id) {
+      await db.positionNotes.update(existing.id, { note, updatedAt: now });
+      return;
+    }
+
+    await db.positionNotes.add({
+      positionKey: key,
+      portfolio,
+      ticker: assetType,
+      openedDate: 'DIV',
+      note,
+      updatedAt: now
+    });
   };
 
   const uniqueAssetTypes = Array.from(new Set([
@@ -148,7 +204,30 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
 
                 return (
                   <tr key={type} className="hover:bg-slate-700/30">
-                    <td className="px-4 py-3 font-medium text-slate-200">{type}</td>
+                    <td className="px-4 py-3 font-medium text-slate-200">
+                      <div className="flex items-center gap-2">
+                        <span>{type}</span>
+
+                        <button
+                          type="button"
+                          onClick={() => openDivNotes(type)}
+                          disabled={selectedPortfolio === 'ALL'}
+                          title={selectedPortfolio === 'ALL'
+                            ? 'Selecciona una cartera (no Global)'
+                            : ((notesByKey.get(selectedPortfolio === 'ALL' ? '' : makeDivKey(selectedPortfolio as PortfolioOwner, type))?.note || '').trim().length > 0
+                                ? 'Ver/editar notas'
+                                : 'Añadir notas')}
+                          className={(() => {
+                            if (selectedPortfolio === 'ALL') return 'p-1 rounded opacity-30 cursor-not-allowed';
+                            const key = makeDivKey(selectedPortfolio as PortfolioOwner, type);
+                            const hasNote = (notesByKey.get(key)?.note || '').trim().length > 0;
+                            return `p-1 rounded transition-colors ${hasNote ? 'text-emerald-400 hover:bg-emerald-900/20' : 'text-slate-400 hover:bg-slate-700/50'}`;
+                          })()}
+                        >
+                          <Icons.PDF size={14} />
+                        </button>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-right text-slate-300">{formatCurrency(currentVal)}</td>
                     <td className="px-4 py-3 text-right text-slate-400">{currentPct.toFixed(1)}%</td>
                     <td className="px-4 py-3 text-center">
@@ -169,6 +248,17 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
            </table>
         </div>
       </div>
+
+      <PositionNotesModal
+        isOpen={notesModal.open}
+        title={notesModal.title}
+        initialNote={notesModal.initialNote}
+        onClose={() => setNotesModal({ open: false, title: '', key: '', portfolio: null, assetType: '', initialNote: '' })}
+        onSave={(note) => {
+          if (!notesModal.portfolio) return;
+          return saveDivNotes(notesModal.key, notesModal.portfolio, notesModal.assetType, note);
+        }}
+      />
     </Card>
   );
 };
