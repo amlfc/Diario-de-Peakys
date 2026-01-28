@@ -15,16 +15,26 @@ export interface ClosedTrade {
   type: 'Venta Total' | 'Venta Parcial';
   quantitySold: number;
 
-  // Financials in EUR
-  sellPriceEur: number; // Avg Price of this sell event
-  costBasisEur: number; // Weighted Avg Cost at moment of sale (referencia)
+  // Moneda de la operación (USD, GBP, CHF, etc.)
+  currency: string;
 
-  grossRevenueEur: number; // ingreso neto (tras comisiones) en EUR
-  grossCostEur: number;    // coste REAL (FIFO) en EUR
+  // --- En moneda de origen ---
+  sellPriceOrigin: number;
+  costBasisOrigin: number;
+  grossRevenueOrigin: number; // ingreso neto (tras comisiones) en moneda
+  grossCostOrigin: number;    // coste FIFO en moneda
+  netPnLOrigin: number;
 
+  // --- En EUR (equivalente) ---
+  sellPriceEur: number;
+  costBasisEur: number;
+  grossRevenueEur: number;
+  grossCostEur: number;
   netPnLEur: number;
-  returnPct: number;
+
+  returnPct: number; // lo calculamos sobre coste EUR
 }
+
 
 export interface AnalysisMetrics {
   totalTrades: number;
@@ -55,96 +65,101 @@ const toNumber = (val: any): number => {
 
 // --- CORE LOGIC: Replay History (FIFO real por lotes) ---
 export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[] => {
-  // 1) Orden cronológico
   const sortedTxs = [...transactions].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
   );
 
-  // 2) Inventario FIFO por lotes
-  // Key: "Portfolio-Ticker" -> array de lots: { remainingQty, unitCostEur, date }
-  type Lot = { remainingQty: number; unitCostEur: number; date: string };
-  const lotsByKey = new Map<string, Lot[]>();
+  type Lot = {
+    remainingQty: number;
+    unitCostOrigin: number; // coste unitario en moneda (incluye comisión prorrateada)
+    unitCostEur: number;    // coste unitario en EUR (unitCostOrigin * fxCompra)
+    date: string;
+  };
 
+  // MUY IMPORTANTE: incluimos la moneda en la clave para NO mezclar inventarios
+  const lotsByKey = new Map<string, Lot[]>();
   const closedTrades: ClosedTrade[] = [];
 
-  const getFx = (tx: any) =>
-    tx.currencyPlatform === 'EUR' ? 1 : (toNumber(tx.fxRateToEur) || 1);
+  const fxOf = (tx: Transaction) => (tx.currencyPlatform === 'EUR' ? 1 : (toNumber(tx.fxRateToEur) || 1));
 
   sortedTxs.forEach((rawTx, index) => {
-    // Sanitizar
-    const tx = {
+    const tx: Transaction = {
       ...rawTx,
       quantity: toNumber(rawTx.quantity),
       price: toNumber(rawTx.price),
-      commission: Math.abs(toNumber((rawTx as any).commission)),
-      fxRateToEur: toNumber((rawTx as any).fxRateToEur) || 1
-    } as any;
+      commission: Math.abs(toNumber(rawTx.commission)),
+      fxRateToEur: toNumber(rawTx.fxRateToEur) || 1
+    };
 
     if (!tx.ticker || !tx.portfolio) return;
 
-    const key = `${tx.portfolio}-${tx.ticker}`;
-    const fxRate = getFx(tx);
+    const ccy = tx.currencyPlatform;
+    const fx = fxOf(tx);
 
+    // robustez: a veces SELL llega con qty negativa
+    const qty = Math.abs(tx.quantity);
+    if (qty <= 0.000001) return;
+
+    const key = `${tx.portfolio}-${tx.ticker}-${ccy}`;
     const lots = lotsByKey.get(key) || [];
 
-    // Robustez: algunas fuentes traen SELL con qty negativa
-    const rawQty = tx.quantity;
-    const qtyAbs = Math.abs(rawQty);
-
     if (tx.type === TransactionType.Buy) {
-      const buyQty = qtyAbs;
-      if (buyQty <= 0.000001) return;
+      // BUY (moneda)
+      const buyCostOrigin = (tx.price * qty) + tx.commission; // comisión en moneda
+      const unitCostOrigin = buyCostOrigin / qty;
 
-      // Coste total EUR = (price*qty*fx) + (comm*fx)
-      const totalCostEur = (tx.price * buyQty * fxRate) + (tx.commission * fxRate);
-      const unitCostEur = totalCostEur / buyQty;
+      // BUY (EUR)
+      const buyCostEur = buyCostOrigin * fx;
+      const unitCostEur = buyCostEur / qty;
 
-      lots.push({ remainingQty: buyQty, unitCostEur, date: tx.date });
+      lots.push({ remainingQty: qty, unitCostOrigin, unitCostEur, date: tx.date });
       lotsByKey.set(key, lots);
       return;
     }
 
     if (tx.type === TransactionType.Sell) {
-      const sellQty = qtyAbs;
-      if (sellQty <= 0.000001) return;
-
-      // Totales antes de vender (para “costBasisEur” informativo y tipo total/parcial)
+      // Inventario antes (para coste medio “informativo”)
       const qtyBefore = lots.reduce((s, l) => s + l.remainingQty, 0);
-      const costBefore = lots.reduce((s, l) => s + (l.remainingQty * l.unitCostEur), 0);
-      const avgCostPerShareEur = qtyBefore > 0.000001 ? (costBefore / qtyBefore) : 0;
+      const costBeforeOrigin = lots.reduce((s, l) => s + (l.remainingQty * l.unitCostOrigin), 0);
+      const costBeforeEur = lots.reduce((s, l) => s + (l.remainingQty * l.unitCostEur), 0);
 
-      // Ingreso neto EUR de la venta
-      const sellRevenueGrossEur = (tx.price * sellQty * fxRate);
-      const sellCommEur = (tx.commission * fxRate);
-      const sellRevenueNetEur = sellRevenueGrossEur - sellCommEur;
+      const avgCostOrigin = qtyBefore > 0.000001 ? costBeforeOrigin / qtyBefore : 0;
+      const avgCostEur = qtyBefore > 0.000001 ? costBeforeEur / qtyBefore : 0;
 
-      // Coste FIFO EUR de las acciones vendidas
-      let remainingToSell = sellQty;
+      // Venta neta en moneda
+      const sellRevenueGrossOrigin = tx.price * qty;
+      const sellRevenueNetOrigin = sellRevenueGrossOrigin - tx.commission;
+
+      // Venta neta en EUR (cada venta con SU fx del día)
+      const sellRevenueNetEur = sellRevenueNetOrigin * fx;
+
+      // Coste FIFO en moneda y en EUR
+      let remainingToSell = qty;
+      let fifoCostOrigin = 0;
       let fifoCostEur = 0;
 
       while (remainingToSell > 0.000001 && lots.length > 0) {
         const lot = lots[0];
         const takeQty = Math.min(lot.remainingQty, remainingToSell);
 
+        fifoCostOrigin += takeQty * lot.unitCostOrigin;
         fifoCostEur += takeQty * lot.unitCostEur;
 
         lot.remainingQty -= takeQty;
         remainingToSell -= takeQty;
 
-        if (lot.remainingQty <= 0.000001) {
-          lots.shift();
-        }
+        if (lot.remainingQty <= 0.000001) lots.shift();
       }
 
-      // Si se vendió más de lo disponible (no debería), ajustamos a lo realmente consumido
-      const qtySoldEffective = sellQty - Math.max(0, remainingToSell);
+      const qtySoldEffective = qty - Math.max(0, remainingToSell);
 
+      const pnlOrigin = sellRevenueNetOrigin - fifoCostOrigin;
       const pnlEur = sellRevenueNetEur - fifoCostEur;
+
       const returnPct = fifoCostEur !== 0 ? (pnlEur / fifoCostEur) : 0;
 
       const qtyAfter = lots.reduce((s, l) => s + l.remainingQty, 0);
-      const saleType: 'Venta Total' | 'Venta Parcial' =
-        qtyAfter < 0.000001 ? 'Venta Total' : 'Venta Parcial';
+      const saleType: 'Venta Total' | 'Venta Parcial' = qtyAfter < 0.000001 ? 'Venta Total' : 'Venta Parcial';
 
       closedTrades.push({
         id: `trade-${index}`,
@@ -156,11 +171,20 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
         type: saleType,
         quantitySold: qtySoldEffective,
 
+        currency: ccy,
+
+        sellPriceOrigin: qtySoldEffective > 0 ? (sellRevenueNetOrigin / qtySoldEffective) : 0,
+        costBasisOrigin: avgCostOrigin,
+        grossRevenueOrigin: sellRevenueNetOrigin,
+        grossCostOrigin: fifoCostOrigin,
+        netPnLOrigin: pnlOrigin,
+
         sellPriceEur: qtySoldEffective > 0 ? (sellRevenueNetEur / qtySoldEffective) : 0,
-        costBasisEur: avgCostPerShareEur, // solo referencia
+        costBasisEur: avgCostEur,
         grossRevenueEur: sellRevenueNetEur,
         grossCostEur: fifoCostEur,
         netPnLEur: pnlEur,
+
         returnPct
       });
 
@@ -168,10 +192,7 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
     }
   });
 
-  // Más recientes primero
-  return closedTrades.sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  return closedTrades.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
 
 export const calculateAnalysisMetrics = (trades: ClosedTrade[]): AnalysisMetrics => {
