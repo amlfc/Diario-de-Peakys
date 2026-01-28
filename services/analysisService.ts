@@ -68,7 +68,7 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
         ...rawTx,
         quantity: toNumber(rawTx.quantity),
         price: toNumber(rawTx.price),
-        commission: toNumber(rawTx.commission),
+        commission: Math.abs(toNumber(rawTx.commission)),
         fxRateToEur: toNumber(rawTx.fxRateToEur) || 1
     };
 
