@@ -203,7 +203,7 @@
                         p.quantity = newQ;
                     }
                 } else {
-                    const sellVal = (tx.quantity * tx.price * tx.fxRateToEur) - (tx.commission * tx.fxRateToEur);
+                    const sellVal = (tx.quantity * tx.price * tx.fxRateToEur) - (Math.abs(tx.commission) * tx.fxRateToEur);
                     const costVal = tx.quantity * p.avgPriceEur;
                     p.realizedPnLEur += (sellVal - costVal);
                     p.quantity -= tx.quantity;
