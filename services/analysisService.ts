@@ -1,3 +1,4 @@
+// services/analysisService.ts
 
 import { Transaction, TransactionType } from '../types';
 import { jsPDF } from "jspdf";
@@ -13,14 +14,14 @@ export interface ClosedTrade {
   portfolio: string;
   type: 'Venta Total' | 'Venta Parcial';
   quantitySold: number;
-  
+
   // Financials in EUR
   sellPriceEur: number; // Avg Price of this sell event
-  costBasisEur: number; // Weighted Avg Cost at moment of sale
-  
-  grossRevenueEur: number;
-  grossCostEur: number;
-  
+  costBasisEur: number; // Weighted Avg Cost at moment of sale (referencia)
+
+  grossRevenueEur: number; // ingreso neto (tras comisiones) en EUR
+  grossCostEur: number;    // coste REAL (FIFO) en EUR
+
   netPnLEur: number;
   returnPct: number;
 }
@@ -40,76 +41,111 @@ export interface AnalysisMetrics {
 const toNumber = (val: any): number => {
   if (typeof val === 'number' && !isNaN(val)) return val;
   if (val === null || val === undefined || val === '') return 0;
-  
+
   const str = String(val).trim();
   let normalized = str;
   // Handle European format (comma decimal) if no dot is present
   if (str.includes(',') && !str.includes('.')) {
     normalized = str.replace(',', '.');
   }
-  
+
   const parsed = parseFloat(normalized);
   return isNaN(parsed) ? 0 : parsed;
 };
 
-// --- CORE LOGIC: Replay History ---
+// --- CORE LOGIC: Replay History (FIFO real por lotes) ---
 export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[] => {
-  // 1. Sort chronologically
-  const sortedTxs = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  // 1) Orden cronológico
+  const sortedTxs = [...transactions].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
 
-  // 2. Inventory State
-  // Map Key: "Portfolio-Ticker" -> { quantity, totalCostEur }
-  const inventory = new Map<string, { quantity: number, totalCostEur: number }>();
+  // 2) Inventario FIFO por lotes
+  // Key: "Portfolio-Ticker" -> array de lots: { remainingQty, unitCostEur, date }
+  type Lot = { remainingQty: number; unitCostEur: number; date: string };
+  const lotsByKey = new Map<string, Lot[]>();
+
   const closedTrades: ClosedTrade[] = [];
 
+  const getFx = (tx: any) =>
+    tx.currencyPlatform === 'EUR' ? 1 : (toNumber(tx.fxRateToEur) || 1);
+
   sortedTxs.forEach((rawTx, index) => {
-    // SANITIZE INPUTS to prevent NaN in Analysis
+    // Sanitizar
     const tx = {
-        ...rawTx,
-        quantity: toNumber(rawTx.quantity),
-        price: toNumber(rawTx.price),
-        commission: Math.abs(toNumber(rawTx.commission)),
-        fxRateToEur: toNumber(rawTx.fxRateToEur) || 1
-    };
+      ...rawTx,
+      quantity: toNumber(rawTx.quantity),
+      price: toNumber(rawTx.price),
+      commission: Math.abs(toNumber((rawTx as any).commission)),
+      fxRateToEur: toNumber((rawTx as any).fxRateToEur) || 1
+    } as any;
+
+    if (!tx.ticker || !tx.portfolio) return;
 
     const key = `${tx.portfolio}-${tx.ticker}`;
-    const currentPos = inventory.get(key) || { quantity: 0, totalCostEur: 0 };
+    const fxRate = getFx(tx);
 
-    // Calculate FX aware values
-    // If currency is EUR, fx is 1. If not, use the rate recorded at transaction time.
-    const fxRate = tx.currencyPlatform === 'EUR' ? 1 : tx.fxRateToEur;
-    
+    const lots = lotsByKey.get(key) || [];
+
+    // Robustez: algunas fuentes traen SELL con qty negativa
+    const rawQty = tx.quantity;
+    const qtyAbs = Math.abs(rawQty);
+
     if (tx.type === TransactionType.Buy) {
-      // --- BUY LOGIC ---
-      // Cost = (Price * Qty * FX) + (Comm * FX)
-      const txCostEur = (tx.price * tx.quantity * fxRate) + (tx.commission * fxRate);
-      
-      currentPos.quantity += tx.quantity;
-      currentPos.totalCostEur += txCostEur;
-      
-      inventory.set(key, currentPos);
+      const buyQty = qtyAbs;
+      if (buyQty <= 0.000001) return;
 
-    } else if (tx.type === TransactionType.Sell) {
-      // --- SELL LOGIC (FIFO/Weighted Avg simulation) ---
-      
-      // We use Weighted Average Cost logic as per the main app.
-      // Avg Cost per Share = TotalCost / TotalQty
-      const avgCostPerShareEur = currentPos.quantity > 0.000001 ? (currentPos.totalCostEur / currentPos.quantity) : 0;
-      
-      const sellRevenueGrossEur = (tx.price * tx.quantity * fxRate);
+      // Coste total EUR = (price*qty*fx) + (comm*fx)
+      const totalCostEur = (tx.price * buyQty * fxRate) + (tx.commission * fxRate);
+      const unitCostEur = totalCostEur / buyQty;
+
+      lots.push({ remainingQty: buyQty, unitCostEur, date: tx.date });
+      lotsByKey.set(key, lots);
+      return;
+    }
+
+    if (tx.type === TransactionType.Sell) {
+      const sellQty = qtyAbs;
+      if (sellQty <= 0.000001) return;
+
+      // Totales antes de vender (para “costBasisEur” informativo y tipo total/parcial)
+      const qtyBefore = lots.reduce((s, l) => s + l.remainingQty, 0);
+      const costBefore = lots.reduce((s, l) => s + (l.remainingQty * l.unitCostEur), 0);
+      const avgCostPerShareEur = qtyBefore > 0.000001 ? (costBefore / qtyBefore) : 0;
+
+      // Ingreso neto EUR de la venta
+      const sellRevenueGrossEur = (tx.price * sellQty * fxRate);
       const sellCommEur = (tx.commission * fxRate);
       const sellRevenueNetEur = sellRevenueGrossEur - sellCommEur;
 
-      // Cost of Goods Sold
-      const costOfSoldEur = avgCostPerShareEur * tx.quantity;
+      // Coste FIFO EUR de las acciones vendidas
+      let remainingToSell = sellQty;
+      let fifoCostEur = 0;
 
-      // PnL
-      const pnlEur = sellRevenueNetEur - costOfSoldEur;
-      
-      // Determine Return %
-      const returnPct = costOfSoldEur !== 0 ? (pnlEur / costOfSoldEur) : 0;
+      while (remainingToSell > 0.000001 && lots.length > 0) {
+        const lot = lots[0];
+        const takeQty = Math.min(lot.remainingQty, remainingToSell);
 
-      // Record Closed Trade
+        fifoCostEur += takeQty * lot.unitCostEur;
+
+        lot.remainingQty -= takeQty;
+        remainingToSell -= takeQty;
+
+        if (lot.remainingQty <= 0.000001) {
+          lots.shift();
+        }
+      }
+
+      // Si se vendió más de lo disponible (no debería), ajustamos a lo realmente consumido
+      const qtySoldEffective = sellQty - Math.max(0, remainingToSell);
+
+      const pnlEur = sellRevenueNetEur - fifoCostEur;
+      const returnPct = fifoCostEur !== 0 ? (pnlEur / fifoCostEur) : 0;
+
+      const qtyAfter = lots.reduce((s, l) => s + l.remainingQty, 0);
+      const saleType: 'Venta Total' | 'Venta Parcial' =
+        qtyAfter < 0.000001 ? 'Venta Total' : 'Venta Parcial';
+
       closedTrades.push({
         id: `trade-${index}`,
         date: tx.date,
@@ -117,95 +153,93 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
         assetName: tx.assetName,
         assetType: tx.assetType,
         portfolio: tx.portfolio,
-        type: currentPos.quantity - tx.quantity < 0.001 ? 'Venta Total' : 'Venta Parcial',
-        quantitySold: tx.quantity,
-        sellPriceEur: tx.quantity > 0 ? (sellRevenueNetEur / tx.quantity) : 0, // Net effective price per share
-        costBasisEur: avgCostPerShareEur,
+        type: saleType,
+        quantitySold: qtySoldEffective,
+
+        sellPriceEur: qtySoldEffective > 0 ? (sellRevenueNetEur / qtySoldEffective) : 0,
+        costBasisEur: avgCostPerShareEur, // solo referencia
         grossRevenueEur: sellRevenueNetEur,
-        grossCostEur: costOfSoldEur,
+        grossCostEur: fifoCostEur,
         netPnLEur: pnlEur,
-        returnPct: returnPct
+        returnPct
       });
 
-      // Update Inventory
-      currentPos.quantity -= tx.quantity;
-      currentPos.totalCostEur -= costOfSoldEur; // Reduce cost basis proportionally
-      
-      // Cleanup small decimals
-      if (currentPos.quantity < 0.00001) {
-         currentPos.quantity = 0;
-         currentPos.totalCostEur = 0;
-      }
-      inventory.set(key, currentPos);
+      lotsByKey.set(key, lots);
     }
   });
 
-  // Return newest first
-  return closedTrades.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  // Más recientes primero
+  return closedTrades.sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
 };
 
 export const calculateAnalysisMetrics = (trades: ClosedTrade[]): AnalysisMetrics => {
-   const totalTrades = trades.length;
-   const winners = trades.filter(t => t.netPnLEur > 0);
-   const losers = trades.filter(t => t.netPnLEur <= 0);
+  const totalTrades = trades.length;
+  const winners = trades.filter(t => t.netPnLEur > 0);
+  const losers = trades.filter(t => t.netPnLEur <= 0);
 
-   const totalProfit = trades.reduce((sum, t) => sum + t.netPnLEur, 0);
-   
-   const grossProfit = winners.reduce((sum, t) => sum + t.netPnLEur, 0);
-   const grossLoss = Math.abs(losers.reduce((sum, t) => sum + t.netPnLEur, 0));
+  const totalProfit = trades.reduce((sum, t) => sum + t.netPnLEur, 0);
 
-   const profitFactor = grossLoss === 0 ? grossProfit : (grossProfit / grossLoss);
+  const grossProfit = winners.reduce((sum, t) => sum + t.netPnLEur, 0);
+  const grossLoss = Math.abs(losers.reduce((sum, t) => sum + t.netPnLEur, 0));
 
-   return {
-     totalTrades,
-     winRate: totalTrades > 0 ? (winners.length / totalTrades) : 0,
-     totalProfitEur: totalProfit,
-     profitFactor,
-     avgWinEur: winners.length > 0 ? (grossProfit / winners.length) : 0,
-     avgLossEur: losers.length > 0 ? (grossLoss / losers.length) : 0, // Positive number representing loss magnitude
-     
-     // Fix: Ensure we have trades before reducing to avoid crash
-     bestTrade: winners.length > 0 ? winners.reduce((prev, current) => (prev.netPnLEur > current.netPnLEur) ? prev : current) : null,
-     worstTrade: losers.length > 0 ? losers.reduce((prev, current) => (prev.netPnLEur < current.netPnLEur) ? prev : current) : null
-   };
+  const profitFactor = grossLoss === 0 ? grossProfit : (grossProfit / grossLoss);
+
+  return {
+    totalTrades,
+    winRate: totalTrades > 0 ? (winners.length / totalTrades) : 0,
+    totalProfitEur: totalProfit,
+    profitFactor,
+    avgWinEur: winners.length > 0 ? (grossProfit / winners.length) : 0,
+    avgLossEur: losers.length > 0 ? (grossLoss / losers.length) : 0,
+
+    bestTrade: winners.length > 0
+      ? winners.reduce((prev, current) => (prev.netPnLEur > current.netPnLEur) ? prev : current)
+      : null,
+
+    worstTrade: losers.length > 0
+      ? losers.reduce((prev, current) => (prev.netPnLEur < current.netPnLEur) ? prev : current)
+      : null
+  };
 };
 
 // --- EXPORTERS ---
 
 export const exportAnalysisToExcel = (trades: ClosedTrade[], metrics: AnalysisMetrics) => {
-   const wb = utils.book_new();
-   
-   // Sheet 1: Summary
-   const summaryData = [
-     { Métrica: 'Total Operaciones', Valor: metrics.totalTrades },
-     { Métrica: 'Beneficio Neto Total (€)', Valor: metrics.totalProfitEur },
-     { Métrica: 'Tasa de Acierto %', Valor: (metrics.winRate * 100).toFixed(2) + '%' },
-     { Métrica: 'Factor de Beneficio', Valor: metrics.profitFactor.toFixed(2) },
-     { Métrica: 'Promedio Ganancia (€)', Valor: metrics.avgWinEur },
-     { Métrica: 'Promedio Pérdida (€)', Valor: metrics.avgLossEur },
-   ];
-   const wsSummary = utils.json_to_sheet(summaryData);
-   utils.book_append_sheet(wb, wsSummary, "Resumen");
+  const wb = utils.book_new();
 
-   // Sheet 2: Detail
-   const detailData = trades.map(t => ({
-     Fecha: t.date,
-     Cartera: t.portfolio,
-     Ticker: t.ticker,
-     Activo: t.assetName,
-     'Tipo Venta': t.type,
-     'Cantidad': t.quantitySold,
-     'Precio Venta Neto (€)': t.sellPriceEur,
-     'Coste Base (€)': t.costBasisEur,
-     'Ingreso Total (€)': t.grossRevenueEur,
-     'Coste Total (€)': t.grossCostEur,
-     'P&L Neto (€)': t.netPnLEur,
-     'Retorno %': t.returnPct
-   }));
-   const wsDetail = utils.json_to_sheet(detailData);
-   utils.book_append_sheet(wb, wsDetail, "Detalle Operaciones");
+  // Sheet 1: Summary
+  const summaryData = [
+    { Métrica: 'Total Operaciones', Valor: metrics.totalTrades },
+    { Métrica: 'Beneficio Neto Total (€)', Valor: metrics.totalProfitEur },
+    { Métrica: 'Tasa de Acierto %', Valor: (metrics.winRate * 100).toFixed(2) + '%' },
+    { Métrica: 'Factor de Beneficio', Valor: metrics.profitFactor.toFixed(2) },
+    { Métrica: 'Promedio Ganancia (€)', Valor: metrics.avgWinEur },
+    { Métrica: 'Promedio Pérdida (€)', Valor: metrics.avgLossEur },
+  ];
+  const wsSummary = utils.json_to_sheet(summaryData);
+  utils.book_append_sheet(wb, wsSummary, "Resumen");
 
-   writeFile(wb, `Peakys_Informe_Analisis_${new Date().toISOString().split('T')[0]}.xlsx`);
+  // Sheet 2: Detail
+  const detailData = trades.map(t => ({
+    Fecha: t.date,
+    Cartera: t.portfolio,
+    Ticker: t.ticker,
+    Activo: t.assetName,
+    'Tipo Venta': t.type,
+    'Cantidad': t.quantitySold,
+    'Precio Venta Neto (€)': t.sellPriceEur,
+    'Coste Base (€)': t.costBasisEur,
+    'Ingreso Total (€)': t.grossRevenueEur,
+    'Coste Total (€)': t.grossCostEur,
+    'P&L Neto (€)': t.netPnLEur,
+    'Retorno %': t.returnPct
+  }));
+  const wsDetail = utils.json_to_sheet(detailData);
+  utils.book_append_sheet(wb, wsDetail, "Detalle Operaciones");
+
+  writeFile(wb, `Peakys_Informe_Analisis_${new Date().toISOString().split('T')[0]}.xlsx`);
 };
 
 export const exportAnalysisToPDF = (trades: ClosedTrade[], metrics: AnalysisMetrics) => {
@@ -216,7 +250,7 @@ export const exportAnalysisToPDF = (trades: ClosedTrade[], metrics: AnalysisMetr
   doc.setFontSize(18);
   doc.setTextColor(40, 40, 40);
   doc.text("Informe de Operaciones Cerradas - Diario de Peakys", 14, 20);
-  
+
   doc.setFontSize(10);
   doc.setTextColor(100, 100, 100);
   doc.text(`Generado el: ${new Date().toLocaleDateString()}`, 14, 26);
@@ -224,18 +258,21 @@ export const exportAnalysisToPDF = (trades: ClosedTrade[], metrics: AnalysisMetr
   // KPI Summary Box
   const startY = 35;
   const boxHeight = 30;
-  
-  doc.setFillColor(240, 245, 250); // Light blue bg
+
+  doc.setFillColor(240, 245, 250);
   doc.rect(14, startY, pageWidth - 28, boxHeight, 'F');
-  
+
   doc.setFontSize(12);
   doc.setTextColor(0, 0, 0);
-  
+
   // Row 1
-  doc.text(`Total P&L: ${new Intl.NumberFormat('es-ES', {style: 'currency', currency: 'EUR'}).format(metrics.totalProfitEur)}`, 20, startY + 10);
+  doc.text(
+    `Total P&L: ${new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(metrics.totalProfitEur)}`,
+    20, startY + 10
+  );
   doc.text(`Tasa Acierto: ${(metrics.winRate * 100).toFixed(1)}%`, 80, startY + 10);
   doc.text(`Factor Beneficio: ${metrics.profitFactor.toFixed(2)}`, 140, startY + 10);
-  
+
   // Row 2
   doc.setFontSize(10);
   doc.text(`Ops Totales: ${metrics.totalTrades}`, 20, startY + 20);
@@ -259,17 +296,16 @@ export const exportAnalysisToPDF = (trades: ClosedTrade[], metrics: AnalysisMetr
     body: tableRows,
     startY: startY + boxHeight + 10,
     styles: { fontSize: 8 },
-    headStyles: { fillColor: [41, 128, 185] }, // Blue header
+    headStyles: { fillColor: [41, 128, 185] },
     columnStyles: {
-        5: { fontStyle: 'bold' } // P&L column bold
+      5: { fontStyle: 'bold' }
     },
-    didParseCell: function(data: any) {
-        // Color P&L column
-        if (data.section === 'body' && data.column.index === 5) {
-            const val = parseFloat(data.cell.raw);
-            if (val >= 0) data.cell.styles.textColor = [20, 160, 100]; // Green
-            else data.cell.styles.textColor = [200, 60, 60]; // Red
-        }
+    didParseCell: function (data: any) {
+      if (data.section === 'body' && data.column.index === 5) {
+        const val = parseFloat(data.cell.raw);
+        if (val >= 0) data.cell.styles.textColor = [20, 160, 100];
+        else data.cell.styles.textColor = [200, 60, 60];
+      }
     }
   });
 
