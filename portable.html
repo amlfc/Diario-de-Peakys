@@ -352,8 +352,9 @@
                 q.toArray().then(setTargets);
             }, [p]);
 
+            // En esta pantalla (Diversificación) mostramos "Invertido" (coste) y no "Valor actual".
             const vals = new Map();
-            pos.forEach(x => vals.set(x.assetType, (vals.get(x.assetType)||0) + x.currentValueEur));
+            pos.forEach(x => vals.set(x.assetType, (vals.get(x.assetType)||0) + x.totalCostEur));
             const data = Array.from(vals.entries()).map(([name, value]) => ({name, value})).sort((a,b) => b.value - a.value);
             
             const refCap = m.totalLiquidityAddedEur + m.realizedPnLEur;
@@ -389,7 +390,13 @@
                         <div className="w-full xl:w-2/3 overflow-x-auto">
                             <table className="w-full text-sm text-left">
                                 <thead className="text-xs text-slate-400 uppercase border-b border-slate-700">
-                                    <tr><th>Tipo</th><th className="text-right">Actual %</th><th className="text-center">Obj %</th><th className="text-center">Estado</th></tr>
+                                    <tr>
+                                      <th>Tipo</th>
+                                      <th className="text-right">Invertido €</th>
+                                      <th className="text-right">Invertido %</th>
+                                      <th className="text-center">Obj %</th>
+                                      <th className="text-center">Estado</th>
+                                    </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-700">
                                     {uniqueTypes.map(type => {
@@ -409,6 +416,7 @@
                                         return (
                                             <tr key={type}>
                                                 <td className="px-4 py-2 text-slate-200">{type}</td>
+                                                <td className="px-4 py-2 text-right">{fmt(val)}</td>
                                                 <td className="px-4 py-2 text-right">{pct.toFixed(1)}%</td>
                                                 <td className="px-4 py-2 text-center">
                                                     {p !== 'ALL' ? 
@@ -564,5 +572,8 @@
         root.render(<App/>);
 
     </script>
+</body>
+</html>
+
 </body>
 </html>
