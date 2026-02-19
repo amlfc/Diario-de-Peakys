@@ -13,14 +13,19 @@ const USER_SCOPED_TABLES = new Set([
   'pky_position_notes'
 ]);
 
-const getCurrentUserId = (): number | undefined => {
+type UserScopeContext = { id?: number; role?: string };
+
+const getCurrentUserContext = (): UserScopeContext => {
   try {
     const raw = localStorage.getItem('pky_auth_user');
-    if (!raw) return undefined;
+    if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return typeof parsed?.id === 'number' ? parsed.id : undefined;
+    return {
+      id: typeof parsed?.id === 'number' ? parsed.id : undefined,
+      role: typeof parsed?.role === 'string' ? parsed.role : undefined
+    };
   } catch {
-    return undefined;
+    return {};
   }
 };
 
@@ -37,20 +42,36 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
 
   private applyReadScope(items: T[]): T[] {
     if (!shouldScopeByUser(this.name)) return items;
-    const currentUserId = getCurrentUserId();
+    const { id: currentUserId, role } = getCurrentUserContext();
     if (!currentUserId) return [];
+
     return items.filter((item: any) => {
-      if (typeof item.user_id === 'number') return item.user_id === currentUserId;
+      const hasUserId = typeof item.user_id === 'number';
+
+      if (hasUserId) {
+        return item.user_id === currentUserId;
+      }
+
+      // Compatibilidad: los admins pueden seguir viendo filas legacy sin user_id
+      // para no perder datos previos a la migración de ownership.
+      if (role === 'admin') {
+        if (this.name === 'pky_portfolios') {
+          return typeof item.owner_id !== 'number' || item.owner_id === currentUserId;
+        }
+        return true;
+      }
+
       if (this.name === 'pky_portfolios' && typeof item.owner_id === 'number') {
         return item.owner_id === currentUserId;
       }
+
       return false;
     });
   }
 
   private withUserScopeOnWrite(item: T): T {
     if (!shouldScopeByUser(this.name)) return item;
-    const currentUserId = getCurrentUserId();
+    const { id: currentUserId } = getCurrentUserContext();
     if (!currentUserId) return item;
 
     const scopedItem: any = { ...item, user_id: currentUserId };
