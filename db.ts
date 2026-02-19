@@ -70,6 +70,16 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
         return true;
       }
 
+        if (this.name === 'pky_portfolios') {
+          return typeof item.owner_id !== 'number' || item.owner_id === currentUserId;
+        }
+        return true;
+      }
+
+      if (this.name === 'pky_portfolios' && typeof item.owner_id === 'number') {
+        return item.owner_id === currentUserId;
+      }
+
       return false;
     });
   }
