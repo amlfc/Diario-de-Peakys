@@ -13,7 +13,22 @@ const USER_SCOPED_TABLES = new Set([
   'pky_position_notes'
 ]);
 
-type UserScopeContext = { id?: number; role?: string };
+type UserScopeContext = { id?: number; role?: 'admin' | 'user' };
+
+const normalizeUserId = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+};
+
+const normalizeRole = (value: unknown): 'admin' | 'user' | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'admin' || normalized === 'user' ? normalized : undefined;
+};
 
 const getCurrentUserContext = (): UserScopeContext => {
   try {
@@ -21,8 +36,8 @@ const getCurrentUserContext = (): UserScopeContext => {
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     return {
-      id: typeof parsed?.id === 'number' ? parsed.id : undefined,
-      role: typeof parsed?.role === 'string' ? parsed.role : undefined
+      id: normalizeUserId(parsed?.id),
+      role: normalizeRole(parsed?.role)
     };
   } catch {
     return {};
@@ -68,16 +83,6 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
       // para no perder datos previos a la migración de ownership.
       if (role === 'admin') {
         return true;
-      }
-
-        if (this.name === 'pky_portfolios') {
-          return typeof item.owner_id !== 'number' || item.owner_id === currentUserId;
-        }
-        return true;
-      }
-
-      if (this.name === 'pky_portfolios' && typeof item.owner_id === 'number') {
-        return item.owner_id === currentUserId;
       }
 
       return false;
