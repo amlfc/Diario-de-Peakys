@@ -48,6 +48,18 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
     return items.filter((item: any) => {
       const hasUserId = typeof item.user_id === 'number';
 
+      // Carteras: priorizar owner_id para no perder asignaciones históricas,
+      // incluso si user_id quedó desalineado por cambios previos.
+      if (this.name === 'pky_portfolios') {
+        if (typeof item.owner_id === 'number') {
+          return item.owner_id === currentUserId;
+        }
+        if (hasUserId) {
+          return item.user_id === currentUserId;
+        }
+        return role === 'admin';
+      }
+
       if (hasUserId) {
         return item.user_id === currentUserId;
       }
@@ -55,6 +67,9 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
       // Compatibilidad: los admins pueden seguir viendo filas legacy sin user_id
       // para no perder datos previos a la migración de ownership.
       if (role === 'admin') {
+        return true;
+      }
+
         if (this.name === 'pky_portfolios') {
           return typeof item.owner_id !== 'number' || item.owner_id === currentUserId;
         }
