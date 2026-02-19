@@ -54,11 +54,13 @@ export interface Portfolio {
   id?: number;
   name: string;
   owner_id?: number; // Link to User ID
+  user_id?: number; // Owner scope for row-level filtering
 }
 
 export interface AssetTypeEntity {
   id?: number;
   name: string;
+  user_id?: number;
 }
 
 export interface AssetAllocationTarget {
@@ -66,6 +68,7 @@ export interface AssetAllocationTarget {
   portfolio: string;
   assetType: string;
   targetPercentage: number; // e.g. 20 for 20%
+  user_id?: number;
 }
 
 export interface Transaction {
@@ -83,6 +86,7 @@ export interface Transaction {
   fxRateToEur: number; // Exchange rate at time of transaction
   nonCash?: boolean; // Si true: ajusta posición/coste pero NO afecta a liquidez
   notes?: string;
+  user_id?: number;
 }
 
 export interface LiquidityEvent {
@@ -92,6 +96,7 @@ export interface LiquidityEvent {
   amountEur: number;
   type: string; // e.g., "Ingreso", "Traspaso"
   notes?: string;
+  user_id?: number;
 }
 
 // Notes linked to a specific "position instance" (same ticker can be opened/closed multiple times)
@@ -104,6 +109,7 @@ export interface PositionNote {
   openedDate: string; // YYYY-MM-DD
   note: string;
   updatedAt: string; // ISO string
+  user_id?: number;
 }
 
 // Derived Entities (Calculated on the fly like the Excel "Posiciones" sheet)
