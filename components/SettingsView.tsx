@@ -9,6 +9,7 @@ import { importTransactionsFromExcel, exportTransactionsToExcel } from '../servi
 const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const portfolios = useLiveData(() => db.portfolios.toArray()) || [];
   
   // API Config State
   const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || '');
@@ -17,6 +18,10 @@ const SettingsView: React.FC = () => {
   // Price Feed State
   const [priceFeedUrl, setPriceFeedUrl] = useState(localStorage.getItem('PRICE_FEED_URL') || '');
   const [isSavingUrl, setIsSavingUrl] = useState(false);
+
+  // Portfolio State
+  const [newPortfolioName, setNewPortfolioName] = useState('');
+  const [isSavingPortfolio, setIsSavingPortfolio] = useState(false);
 
   const handleSaveApiUrl = () => {
     setIsSavingApi(true);
@@ -38,6 +43,52 @@ const SettingsView: React.FC = () => {
         alert('URL de precios guardada. Los precios y divisas se actualizarán en el Dashboard.');
         window.location.reload();
     }, 500);
+  };
+
+  const handleCreatePortfolio = async () => {
+    const cleanName = newPortfolioName.trim();
+    if (!cleanName) {
+      alert('Escribe un nombre de cartera.');
+      return;
+    }
+
+    const exists = portfolios.some(p => p.name.trim().toLowerCase() === cleanName.toLowerCase());
+    if (exists) {
+      alert('Ya existe una cartera con ese nombre.');
+      return;
+    }
+
+    setIsSavingPortfolio(true);
+    try {
+      await db.portfolios.add({ name: cleanName });
+      setNewPortfolioName('');
+    } catch (error) {
+      console.error('Error creating portfolio:', error);
+      alert('No se pudo crear la cartera. Revisa la conexión API.');
+    } finally {
+      setIsSavingPortfolio(false);
+    }
+  };
+
+  const handleDeletePortfolio = async (portfolioId?: number, portfolioName?: string) => {
+    if (!portfolioId || !portfolioName) return;
+
+    const hasTransactions = (await db.transactions.where('portfolio').equals(portfolioName).toArray()).length > 0;
+    const hasLiquidity = (await db.liquidity.where('portfolio').equals(portfolioName).toArray()).length > 0;
+
+    if (hasTransactions || hasLiquidity) {
+      alert('No puedes borrar esta cartera porque tiene transacciones o movimientos de liquidez asociados.');
+      return;
+    }
+
+    if (!confirm(`¿Borrar la cartera "${portfolioName}"?`)) return;
+
+    try {
+      await db.portfolios.delete(portfolioId);
+    } catch (error) {
+      console.error('Error deleting portfolio:', error);
+      alert('No se pudo borrar la cartera. Revisa la conexión API.');
+    }
   };
 
   const handleClear = async () => {
@@ -101,6 +152,50 @@ const SettingsView: React.FC = () => {
                     </button>
                 </div>
             </div>
+        </Card>
+
+        <Card title="Mis Carteras">
+          <div className="space-y-4">
+            <p className="text-xs text-slate-400">Cada usuario puede gestionar su propia lista de carteras. Estas carteras aparecerán en transacciones y liquidez de tu cuenta.</p>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newPortfolioName}
+                onChange={(e) => setNewPortfolioName(e.target.value)}
+                placeholder="Ej. DeGiro, Trading 212, Largo Plazo"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"
+              />
+              <button
+                onClick={handleCreatePortfolio}
+                disabled={isSavingPortfolio}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+              >
+                {isSavingPortfolio ? '...' : 'Añadir Cartera'}
+              </button>
+            </div>
+
+            <div className="border border-slate-700 rounded-lg overflow-hidden">
+              {portfolios.length === 0 ? (
+                <div className="px-4 py-4 text-sm text-slate-500">No tienes carteras todavía. Crea la primera arriba.</div>
+              ) : (
+                <ul className="divide-y divide-slate-700">
+                  {portfolios.map((portfolio) => (
+                    <li key={portfolio.id} className="px-4 py-3 flex items-center justify-between">
+                      <span className="text-sm text-slate-100">{portfolio.name}</span>
+                      <button
+                        onClick={() => handleDeletePortfolio(portfolio.id, portfolio.name)}
+                        className="text-rose-400 hover:text-rose-300 text-xs flex items-center gap-1"
+                        title="Eliminar cartera"
+                      >
+                        <Icons.Trash size={14} /> Eliminar
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </Card>
 
         <Card title="Fuente de Datos (Google Sheets)">

@@ -14,9 +14,25 @@ const LoginView: React.FC = () => {
   const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || '');
   const [configMode, setConfigMode] = useState(!api.isConfigured());
 
+  const isValidApiUrl = (value: string) => {
+    try {
+      const parsed = new URL(value.trim());
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!api.isConfigured()) {
+      setError('Configura primero la URL de la API para poder iniciar sesión o registrarte.');
+      setConfigMode(true);
+      return;
+    }
+
     setIsLoading(true);
 
     if (!username || !password) {
@@ -38,7 +54,7 @@ const LoginView: React.FC = () => {
             const success = await login(username, password);
             if (!success) {
                 if (api.hasError) {
-                    setError('Error de conexión con la Base de Datos. Revisa que las tablas existan en Hostinger.');
+                    setError('Error de conexión con la Base de Datos. Revisa la URL de API y que las tablas existan en Hostinger.');
                 } else {
                     setError('Usuario o contraseña incorrectos.');
                 }
@@ -52,8 +68,19 @@ const LoginView: React.FC = () => {
   };
 
   const handleSaveConfig = () => {
-      if (!apiUrl) return;
-      localStorage.setItem('HOSTINGER_API_URL', apiUrl);
+      const cleanedUrl = apiUrl.trim();
+
+      if (!cleanedUrl) {
+        setError('Debes indicar la URL de la API.');
+        return;
+      }
+
+      if (!isValidApiUrl(cleanedUrl)) {
+        setError('La URL no es válida. Ejemplo: https://tudominio.com/api-peakys/index.php');
+        return;
+      }
+
+      localStorage.setItem('HOSTINGER_API_URL', cleanedUrl);
       window.location.reload();
   };
 
@@ -78,6 +105,11 @@ const LoginView: React.FC = () => {
                             className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white focus:border-blue-500 outline-none"
                         />
                     </div>
+                    {error && (
+                      <div className="p-3 bg-rose-900/30 border border-rose-900/50 rounded text-rose-400 text-sm">
+                        {error}
+                      </div>
+                    )}
                     <button onClick={handleSaveConfig} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg font-bold transition-colors">
                         Guardar y Continuar
                     </button>
@@ -212,7 +244,7 @@ $allowed_tables = [
         </div>
         
         <div className="mt-4 text-center">
-            <button onClick={() => setConfigMode(true)} className="text-xs text-slate-600 hover:text-slate-400 flex items-center justify-center gap-1 w-full" disabled={isLoading}>
+            <button onClick={() => { setError(''); setConfigMode(true); }} className="text-xs text-slate-600 hover:text-slate-400 flex items-center justify-center gap-1 w-full" disabled={isLoading}>
                 <Icons.Settings size={12} /> Configurar conexión API
             </button>
         </div>

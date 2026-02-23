@@ -1,15 +1,27 @@
 
 export class ApiService {
   public hasError = false;
+
+  private sanitizeUrl(value: string | null): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      return trimmed;
+    } catch {
+      return null;
+    }
+  }
   
   isConfigured(): boolean {
-    return !!localStorage.getItem('HOSTINGER_API_URL');
+    return !!this.sanitizeUrl(localStorage.getItem('HOSTINGER_API_URL'));
   }
 
   private getUrl() {
-    const url = localStorage.getItem('HOSTINGER_API_URL');
-    if (!url) return null;
-    return url;
+    return this.sanitizeUrl(localStorage.getItem('HOSTINGER_API_URL'));
   }
 
   async get(table: string) {
