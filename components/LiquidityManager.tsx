@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { db } from '../db';
 import { Icons } from './ui/Icons';
@@ -14,11 +14,17 @@ const LiquidityManager: React.FC = () => {
   
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
-    portfolio: 'Alejandro',
+    portfolio: '',
     amountEur: '',
     concept: '', 
     notes: ''
   });
+
+  useEffect(() => {
+    if (formData.portfolio) return;
+    if (portfolios.length === 0) return;
+    setFormData(prev => ({ ...prev, portfolio: portfolios[0].name }));
+  }, [formData.portfolio, portfolios]);
 
   const formatCurrency = (val: number) => 
     new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(val);
@@ -64,6 +70,11 @@ const LiquidityManager: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.amountEur) return;
+
+    if (!formData.portfolio) {
+      alert('Primero crea una cartera en Configuración > Mis Carteras.');
+      return;
+    }
 
     const numericAmount = parseFloat(formData.amountEur);
     const finalAmount = transactionType === 'OUT' ? -Math.abs(numericAmount) : Math.abs(numericAmount);
@@ -123,8 +134,8 @@ const LiquidityManager: React.FC = () => {
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Cartera</label>
-              <select value={formData.portfolio} onChange={e => setFormData({...formData, portfolio: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none">
-                 {portfolios.length > 0 ? portfolios.map(p => <option key={p.id} value={p.name}>{p.name}</option>) : <option value="Alejandro">Alejandro</option>}
+              <select value={formData.portfolio} onChange={e => setFormData({...formData, portfolio: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none" required>
+                 {portfolios.length > 0 ? portfolios.map(p => <option key={p.id} value={p.name}>{p.name}</option>) : <option value="">Primero crea una cartera en Configuración</option>}
               </select>
             </div>
             <div>

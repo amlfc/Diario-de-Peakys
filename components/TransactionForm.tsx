@@ -18,7 +18,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
   
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
-    portfolio: 'Alejandro', 
+    portfolio: '', 
     type: TransactionType.Buy,
     ticker: '',
     assetName: '',
@@ -48,8 +48,22 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
     }
   }, [initialData]);
 
+  useEffect(() => {
+    if (initialData) return;
+    if (formData.portfolio) return;
+    if (portfolios.length === 0) return;
+
+    setFormData(prev => ({ ...prev, portfolio: portfolios[0].name }));
+  }, [initialData, formData.portfolio, portfolios]);
+
  const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
+
+  if (!formData.portfolio) {
+    alert('Primero crea una cartera en Configuración > Mis Carteras.');
+    return;
+  }
+
   try {
     const tickerUpper = (formData.ticker || "").toUpperCase().trim();
     const assetNameSafe = (formData.assetName || "").trim() || tickerUpper;
@@ -111,8 +125,12 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1">Cartera</label>
-          <select name="portfolio" value={formData.portfolio} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none">
-            {portfolios.length > 0 ? portfolios.map(p => <option key={p.id} value={p.name}>{p.name}</option>) : <option value="Alejandro">Alejandro</option>}
+          <select name="portfolio" value={formData.portfolio} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none" required>
+            {portfolios.length > 0 ? (
+              portfolios.map(p => <option key={p.id} value={p.name}>{p.name}</option>)
+            ) : (
+              <option value="">Primero crea una cartera en Configuración</option>
+            )}
           </select>
         </div>
         <div>
