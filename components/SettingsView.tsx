@@ -5,6 +5,7 @@ import { useLiveData } from '../hooks/useLiveData';
 import { Card } from './ui/Card';
 import { Icons } from './ui/Icons';
 import { importTransactionsFromExcel, exportTransactionsToExcel } from '../services/excelService';
+import { DEFAULT_RISK_LEVELS, getRiskLevelsConfig, saveRiskLevelsConfig } from '../utils/riskLevels';
 
 const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -18,6 +19,12 @@ const SettingsView: React.FC = () => {
   // Price Feed State
   const [priceFeedUrl, setPriceFeedUrl] = useState(localStorage.getItem('PRICE_FEED_URL') || '');
   const [isSavingUrl, setIsSavingUrl] = useState(false);
+
+  // Risk management levels (Stops / TP-Trailing activation)
+  const initialRiskConfig = getRiskLevelsConfig();
+  const [stopLevels, setStopLevels] = useState<string[]>(initialRiskConfig.stopPercents.map(String));
+  const [trailingLevels, setTrailingLevels] = useState<string[]>(initialRiskConfig.trailingPercents.map(String));
+  const [isSavingRiskLevels, setIsSavingRiskLevels] = useState(false);
 
   // Portfolio State
   const [newPortfolioName, setNewPortfolioName] = useState('');
@@ -68,6 +75,47 @@ const SettingsView: React.FC = () => {
     } finally {
       setIsSavingPortfolio(false);
     }
+  };
+
+  const updateLevel = (
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    index: number,
+    value: string
+  ) => {
+    setter(prev => prev.map((level, i) => (i === index ? value : level)));
+  };
+
+  const parseLevel = (value: string, fallback: number) => {
+    const normalized = value.replace(',', '.').trim();
+    if (!normalized) return fallback;
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+    return Number(parsed.toFixed(2));
+  };
+
+  const handleSaveRiskLevels = () => {
+    setIsSavingRiskLevels(true);
+    const nextConfig = {
+      stopPercents: [
+        parseLevel(stopLevels[0], DEFAULT_RISK_LEVELS.stopPercents[0]),
+        parseLevel(stopLevels[1], DEFAULT_RISK_LEVELS.stopPercents[1]),
+        parseLevel(stopLevels[2], DEFAULT_RISK_LEVELS.stopPercents[2])
+      ] as [number, number, number],
+      trailingPercents: [
+        parseLevel(trailingLevels[0], DEFAULT_RISK_LEVELS.trailingPercents[0]),
+        parseLevel(trailingLevels[1], DEFAULT_RISK_LEVELS.trailingPercents[1]),
+        parseLevel(trailingLevels[2], DEFAULT_RISK_LEVELS.trailingPercents[2])
+      ] as [number, number, number]
+    };
+
+    saveRiskLevelsConfig(nextConfig);
+    setStopLevels(nextConfig.stopPercents.map(String));
+    setTrailingLevels(nextConfig.trailingPercents.map(String));
+
+    setTimeout(() => {
+      setIsSavingRiskLevels(false);
+      alert('Niveles de stop y trailing guardados. Se aplicarán en Posiciones Abiertas.');
+    }, 300);
   };
 
   const handleDeletePortfolio = async (portfolioId?: number, portfolioName?: string) => {
@@ -207,6 +255,63 @@ const SettingsView: React.FC = () => {
                  </button>
               </div>
            </div>
+        </Card>
+
+        <Card title="Niveles de Stops y Take Profit / Trailing">
+          <div className="space-y-4">
+            <p className="text-xs text-slate-400">
+              Define aquí los porcentajes que se usarán para calcular automáticamente 3 precios de stop y 3 precios de activación de take profit / trailing
+              en cada posición abierta, tomando como base el precio medio de compra.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 space-y-2">
+                <p className="text-sm text-rose-300 font-medium">Stops (%)</p>
+                {stopLevels.map((level, index) => (
+                  <div key={`stop-${index}`} className="flex items-center gap-2">
+                    <label className="text-xs text-slate-400 w-14">Stop {index + 1}</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={level}
+                      onChange={(e) => updateLevel(setStopLevels, index, e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"
+                    />
+                    <span className="text-xs text-slate-500">%</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 space-y-2">
+                <p className="text-sm text-emerald-300 font-medium">Take Profit / Trailing Activación (%)</p>
+                {trailingLevels.map((level, index) => (
+                  <div key={`trail-${index}`} className="flex items-center gap-2">
+                    <label className="text-xs text-slate-400 w-14">TP {index + 1}</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={level}
+                      onChange={(e) => updateLevel(setTrailingLevels, index, e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"
+                    />
+                    <span className="text-xs text-slate-500">%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleSaveRiskLevels}
+                disabled={isSavingRiskLevels}
+                className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+              >
+                {isSavingRiskLevels ? 'Guardando...' : 'Guardar Niveles'}
+              </button>
+            </div>
+          </div>
         </Card>
         
         <Card title="Herramientas Excel (Operativas)">
