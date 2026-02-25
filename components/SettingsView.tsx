@@ -31,10 +31,29 @@ const SettingsView: React.FC = () => {
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [isSavingPortfolio, setIsSavingPortfolio] = useState(false);
 
+  const isValidWebUrl = (value: string) => {
+    try {
+      const parsed = new URL(value.trim());
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  };
+
   const handleSaveApiUrl = () => {
+    const trimmed = apiUrl.trim();
+    if (!trimmed) {
+      alert('Debes indicar la URL de la API.');
+      return;
+    }
+    if (!isValidWebUrl(trimmed)) {
+      alert('La URL de la API no es válida. Ejemplo: https://tudominio.com/api-peakys/index.php');
+      return;
+    }
+
     setIsSavingApi(true);
     // Remove trailing slash if present for consistency
-    const cleanUrl = apiUrl.trim().replace(/\/$/, '');
+    const cleanUrl = trimmed.replace(/\/$/, '');
     localStorage.setItem('HOSTINGER_API_URL', cleanUrl);
     setTimeout(() => {
         setIsSavingApi(false);
@@ -44,8 +63,18 @@ const SettingsView: React.FC = () => {
   };
 
   const handleSavePriceUrl = () => {
+    const trimmed = priceFeedUrl.trim();
+    if (!trimmed) {
+      alert('Debes indicar la URL de Google Sheets.');
+      return;
+    }
+    if (!isValidWebUrl(trimmed)) {
+      alert('La URL de Google Sheets no es válida.');
+      return;
+    }
+
     setIsSavingUrl(true);
-    localStorage.setItem('PRICE_FEED_URL', priceFeedUrl.trim());
+    localStorage.setItem('PRICE_FEED_URL', trimmed);
     setTimeout(() => {
         setIsSavingUrl(false);
         alert('URL de precios guardada. Los precios y divisas se actualizarán en el Dashboard.');
@@ -323,6 +352,7 @@ const SettingsView: React.FC = () => {
 
         <Card title="Fuente de Datos (Google Sheets)">
            <div className="space-y-4">
+              <p className="text-xs text-slate-400">Pega aquí la URL de tu hoja de Google Sheets para precios y datos en vivo.</p>
               <div className="flex gap-2 mt-2">
                  <input type="text" value={priceFeedUrl} onChange={(e) => setPriceFeedUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"/>
                  <button onClick={handleSavePriceUrl} disabled={isSavingUrl} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap">
@@ -391,13 +421,14 @@ const SettingsView: React.FC = () => {
         
         <Card title="Herramientas Excel (Operativas)">
           <div className="space-y-4">
+            <p className="text-xs text-slate-400">Exporta todas las transacciones y aportaciones de todas tus carteras en un único archivo Excel.</p>
             <div className="flex flex-col sm:flex-row items-center gap-4">
                <input type="file" ref={fileInputRef} accept=".xlsx, .xls" onChange={handleFileChange} className="hidden"/>
                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="w-full sm:w-auto flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                  {isImporting ? <span>Procesando...</span> : <><Icons.Add size={18} className="rotate-45" /> Subir Excel Transacciones</>}
                </button>
                <button onClick={handleExportExcel} className="w-full sm:w-auto flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors">
-                  <Icons.Arrow size={18} className="rotate-90" /> Descargar Excel Transacciones
+                  <Icons.Arrow size={18} className="rotate-90" /> Descargar Excel (Todas las transacciones)
                </button>
             </div>
           </div>
