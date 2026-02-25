@@ -9,6 +9,7 @@ import { DEFAULT_RISK_LEVELS, getRiskLevelsConfig, saveRiskLevelsConfig } from '
 
 const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   const portfolios = useLiveData(() => db.portfolios.toArray()) || [];
   
@@ -176,6 +177,80 @@ const SettingsView: React.FC = () => {
     await exportTransactionsToExcel();
   };
 
+  const handleExportBackupJson = async () => {
+    try {
+      const data = {
+        transactions: await db.transactions.toArray(),
+        liquidity: await db.liquidity.toArray(),
+        portfolios: await db.portfolios.toArray(),
+        assetTypes: await db.assetTypes.toArray(),
+        allocationTargets: await db.allocationTargets.toArray(),
+        positionNotes: await db.positionNotes.toArray(),
+        metadata: {
+          priceFeedUrl: localStorage.getItem('PRICE_FEED_URL') || '',
+          riskLevels: getRiskLevelsConfig(),
+          exportedAt: new Date().toISOString()
+        }
+      };
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `peakys_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting backup JSON:', error);
+      alert('No se pudo generar la copia JSON. Revisa la conexión API.');
+    }
+  };
+
+  const handleImportBackupJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+
+      if (!confirm('Se restaurará la copia seleccionada y se reemplazarán los datos actuales. ¿Continuar?')) {
+        return;
+      }
+
+      await db.transactions.clear();
+      await db.liquidity.clear();
+      await db.portfolios.clear();
+      await db.assetTypes.clear();
+      await db.allocationTargets.clear();
+      await db.positionNotes.clear();
+
+      await db.transactions.bulkAdd(Array.isArray(parsed.transactions) ? parsed.transactions : []);
+      await db.liquidity.bulkAdd(Array.isArray(parsed.liquidity) ? parsed.liquidity : []);
+      await db.portfolios.bulkAdd(Array.isArray(parsed.portfolios) ? parsed.portfolios : []);
+      await db.assetTypes.bulkAdd(Array.isArray(parsed.assetTypes) ? parsed.assetTypes : []);
+      await db.allocationTargets.bulkAdd(Array.isArray(parsed.allocationTargets) ? parsed.allocationTargets : []);
+      await db.positionNotes.bulkAdd(Array.isArray(parsed.positionNotes) ? parsed.positionNotes : []);
+
+      if (typeof parsed?.metadata?.priceFeedUrl === 'string') {
+        localStorage.setItem('PRICE_FEED_URL', parsed.metadata.priceFeedUrl);
+      }
+      if (parsed?.metadata?.riskLevels) {
+        saveRiskLevelsConfig(parsed.metadata.riskLevels);
+      }
+
+      alert('Copia restaurada correctamente. Se recargará la aplicación.');
+      window.location.reload();
+    } catch (error) {
+      console.error('Error importing backup JSON:', error);
+      alert('No se pudo restaurar la copia JSON. Verifica el archivo.');
+    } finally {
+      if (backupInputRef.current) backupInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in pb-10">
       <h2 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -324,6 +399,35 @@ const SettingsView: React.FC = () => {
                <button onClick={handleExportExcel} className="w-full sm:w-auto flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors">
                   <Icons.Arrow size={18} className="rotate-90" /> Descargar Excel Transacciones
                </button>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Copia de Seguridad JSON">
+          <div className="space-y-4">
+            <p className="text-xs text-slate-400">
+              Exporta una copia completa de tus datos y restáurala cuando necesites recuperar la información.
+            </p>
+            <input
+              type="file"
+              ref={backupInputRef}
+              accept="application/json,.json"
+              onChange={handleImportBackupJson}
+              className="hidden"
+            />
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <button
+                onClick={handleExportBackupJson}
+                className="w-full sm:w-auto flex-1 bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors"
+              >
+                <Icons.Save size={18} /> Descargar Copia JSON
+              </button>
+              <button
+                onClick={() => backupInputRef.current?.click()}
+                className="w-full sm:w-auto flex-1 bg-slate-700 hover:bg-slate-600 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors"
+              >
+                <Icons.Add size={18} className="rotate-45" /> Restaurar Copia JSON
+              </button>
             </div>
           </div>
         </Card>
