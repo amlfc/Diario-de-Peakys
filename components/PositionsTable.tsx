@@ -5,6 +5,7 @@ import { Icons } from './ui/Icons';
 import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { db } from '../db';
 import PositionNotesModal from './PositionNotesModal';
+import { getRiskLevelsConfig } from '../utils/riskLevels';
 
 interface PositionsTableProps {
   positions: Position[];
@@ -24,6 +25,15 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
     ticker: string;
     initialNote: string;
   }>({ open: false, title: '', key: '', portfolio: '', ticker: '', initialNote: '' });
+
+  const [manualOrdersByPosition, setManualOrdersByPosition] = useState<Record<string, { stopPrice?: string; trailingActivationPrice?: string }>>(() => {
+    try {
+      const raw = localStorage.getItem('POSITION_MANUAL_ORDERS');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
 
   const formatCurrency = (val: number, currency: string = Currency.EUR) => 
     new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(val);
@@ -75,6 +85,22 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
     // Fallback: if we couldn't infer the open date, we still want a stable key
     const openDate = lastOpenDate || 'UNKNOWN';
     return `${portfolio}-${ticker}-${openDate}`;
+  };
+
+  const riskConfig = getRiskLevelsConfig();
+
+  const updateManualOrder = (positionKey: string, field: 'stopPrice' | 'trailingActivationPrice', value: string) => {
+    setManualOrdersByPosition(prev => {
+      const next = {
+        ...prev,
+        [positionKey]: {
+          ...prev[positionKey],
+          [field]: value
+        }
+      };
+      localStorage.setItem('POSITION_MANUAL_ORDERS', JSON.stringify(next));
+      return next;
+    });
   };
 
   const openNotes = (pos: Position) => {
@@ -136,11 +162,15 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
               <th className="px-4 py-3 text-right border-l border-slate-700">Valor (EUR)</th>
               <th className="px-4 py-3 text-right">G/P Lat. (EUR)</th>
               <th className="px-4 py-3 text-right">%</th>
+              <th className="px-4 py-3 text-right border-l border-slate-700">Stops Auto</th>
+              <th className="px-4 py-3 text-right">TP/Trail Auto</th>
+              <th className="px-4 py-3 text-right">Stop Manual</th>
+              <th className="px-4 py-3 text-right">TP/Trail Manual</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700">
             {sortedPositions.length === 0 ? (
-              <tr><td colSpan={11} className="px-6 py-8 text-center text-slate-500">No hay posiciones abiertas para esta selección.</td></tr>
+              <tr><td colSpan={15} className="px-6 py-8 text-center text-slate-500">No hay posiciones abiertas para esta selección.</td></tr>
             ) : (
               sortedPositions.map((pos) => {
                 const isProfitEur = pos.unrealizedPnLEur >= 0;
@@ -149,6 +179,16 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
                 const positionKey = computePositionKey(pos.portfolio, pos.ticker);
                 const noteText = notesByKey.get(positionKey)?.note || '';
                 const hasNote = noteText.trim().length > 0;
+                const avgBuyPrice = pos.avgPricePlatform;
+                const autoStops = riskConfig.stopPercents.map(level => ({
+                  level,
+                  price: avgBuyPrice * (1 - level / 100)
+                }));
+                const autoTrails = riskConfig.trailingPercents.map(level => ({
+                  level,
+                  price: avgBuyPrice * (1 + level / 100)
+                }));
+                const manualOrders = manualOrdersByPosition[positionKey] || {};
 
                 return (
                   <tr key={`${pos.portfolio}-${pos.ticker}`} className="hover:bg-slate-700/30 transition-colors">
@@ -192,6 +232,44 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
                     </td>
                     <td className={`px-4 py-4 text-right font-medium ${isProfitEur ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {formatPct(pos.unrealizedPnLPct)}
+                    </td>
+                    <td className="px-4 py-4 text-right border-l border-slate-700">
+                      <div className="space-y-1 font-mono text-xs">
+                        {autoStops.map((item, index) => (
+                          <div key={`stop-${positionKey}-${index}`} className="text-rose-300">
+                            S{index + 1} ({item.level}%): {formatCurrency(item.price, pos.currencyPlatform)}
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <div className="space-y-1 font-mono text-xs">
+                        {autoTrails.map((item, index) => (
+                          <div key={`trail-${positionKey}-${index}`} className="text-emerald-300">
+                            TP{index + 1} ({item.level}%): {formatCurrency(item.price, pos.currencyPlatform)}
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={manualOrders.stopPrice || ''}
+                        onChange={(e) => updateManualOrder(positionKey, 'stopPrice', e.target.value)}
+                        placeholder="Ej. 125.50"
+                        className="w-28 bg-slate-900 border border-slate-700 rounded p-1.5 text-white text-xs text-right focus:border-blue-500 outline-none"
+                      />
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={manualOrders.trailingActivationPrice || ''}
+                        onChange={(e) => updateManualOrder(positionKey, 'trailingActivationPrice', e.target.value)}
+                        placeholder="Ej. 148.00"
+                        className="w-28 bg-slate-900 border border-slate-700 rounded p-1.5 text-white text-xs text-right focus:border-blue-500 outline-none"
+                      />
                     </td>
                   </tr>
                 );
