@@ -31,6 +31,9 @@ const SettingsView: React.FC = () => {
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [isSavingPortfolio, setIsSavingPortfolio] = useState(false);
 
+  const isApiConfigured = apiUrl.trim().length > 0;
+  const isPriceFeedConfigured = priceFeedUrl.trim().length > 0;
+
   const isValidWebUrl = (value: string) => {
     try {
       const parsed = new URL(value.trim());
@@ -287,6 +290,37 @@ const SettingsView: React.FC = () => {
       </h2>
 
       <div className="grid grid-cols-1 gap-6">
+
+        <Card title="Utilidades Restauradas (Acceso Rápido)">
+          <div className="space-y-4">
+            <p className="text-xs text-slate-400">
+              Esta sección resume y da acceso directo a las utilidades clave restauradas: URL API, URL Google Sheets y exportación Excel completa.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                <p className="text-[11px] text-slate-400">URL API</p>
+                <p className={`text-xs font-medium ${isApiConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {isApiConfigured ? 'Configurada' : 'Pendiente de configurar'}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                <p className="text-[11px] text-slate-400">URL Google Sheets</p>
+                <p className={`text-xs font-medium ${isPriceFeedConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {isPriceFeedConfigured ? 'Configurada' : 'Pendiente de configurar'}
+                </p>
+              </div>
+
+              <button
+                onClick={handleExportExcel}
+                className="rounded-lg border border-emerald-700/60 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-300 px-3 py-2 text-sm font-medium transition-colors"
+              >
+                Exportar Excel ahora
+              </button>
+            </div>
+          </div>
+        </Card>
 
         <Card title="Conexión Base de Datos (Hostinger MySQL)">
             <div className="space-y-2">
