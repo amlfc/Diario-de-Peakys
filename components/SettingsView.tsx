@@ -5,9 +5,11 @@ import { useLiveData } from '../hooks/useLiveData';
 import { Card } from './ui/Card';
 import { Icons } from './ui/Icons';
 import { importTransactionsFromExcel, exportTransactionsToExcel } from '../services/excelService';
+import { DEFAULT_RISK_LEVELS, getRiskLevelsConfig, saveRiskLevelsConfig } from '../utils/riskLevels';
 
 const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   const portfolios = useLiveData(() => db.portfolios.toArray()) || [];
   
@@ -19,14 +21,39 @@ const SettingsView: React.FC = () => {
   const [priceFeedUrl, setPriceFeedUrl] = useState(localStorage.getItem('PRICE_FEED_URL') || '');
   const [isSavingUrl, setIsSavingUrl] = useState(false);
 
+  // Risk management levels (Stops / TP-Trailing activation)
+  const initialRiskConfig = getRiskLevelsConfig();
+  const [stopLevels, setStopLevels] = useState<string[]>(initialRiskConfig.stopPercents.map(String));
+  const [trailingLevels, setTrailingLevels] = useState<string[]>(initialRiskConfig.trailingPercents.map(String));
+  const [isSavingRiskLevels, setIsSavingRiskLevels] = useState(false);
+
   // Portfolio State
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [isSavingPortfolio, setIsSavingPortfolio] = useState(false);
 
+  const isValidWebUrl = (value: string) => {
+    try {
+      const parsed = new URL(value.trim());
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  };
+
   const handleSaveApiUrl = () => {
+    const trimmed = apiUrl.trim();
+    if (!trimmed) {
+      alert('Debes indicar la URL de la API.');
+      return;
+    }
+    if (!isValidWebUrl(trimmed)) {
+      alert('La URL de la API no es válida. Ejemplo: https://tudominio.com/api-peakys/index.php');
+      return;
+    }
+
     setIsSavingApi(true);
     // Remove trailing slash if present for consistency
-    const cleanUrl = apiUrl.trim().replace(/\/$/, '');
+    const cleanUrl = trimmed.replace(/\/$/, '');
     localStorage.setItem('HOSTINGER_API_URL', cleanUrl);
     setTimeout(() => {
         setIsSavingApi(false);
@@ -36,8 +63,18 @@ const SettingsView: React.FC = () => {
   };
 
   const handleSavePriceUrl = () => {
+    const trimmed = priceFeedUrl.trim();
+    if (!trimmed) {
+      alert('Debes indicar la URL de Google Sheets.');
+      return;
+    }
+    if (!isValidWebUrl(trimmed)) {
+      alert('La URL de Google Sheets no es válida.');
+      return;
+    }
+
     setIsSavingUrl(true);
-    localStorage.setItem('PRICE_FEED_URL', priceFeedUrl.trim());
+    localStorage.setItem('PRICE_FEED_URL', trimmed);
     setTimeout(() => {
         setIsSavingUrl(false);
         alert('URL de precios guardada. Los precios y divisas se actualizarán en el Dashboard.');
@@ -68,6 +105,47 @@ const SettingsView: React.FC = () => {
     } finally {
       setIsSavingPortfolio(false);
     }
+  };
+
+  const updateLevel = (
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    index: number,
+    value: string
+  ) => {
+    setter(prev => prev.map((level, i) => (i === index ? value : level)));
+  };
+
+  const parseLevel = (value: string, fallback: number) => {
+    const normalized = value.replace(',', '.').trim();
+    if (!normalized) return fallback;
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+    return Number(parsed.toFixed(2));
+  };
+
+  const handleSaveRiskLevels = () => {
+    setIsSavingRiskLevels(true);
+    const nextConfig = {
+      stopPercents: [
+        parseLevel(stopLevels[0], DEFAULT_RISK_LEVELS.stopPercents[0]),
+        parseLevel(stopLevels[1], DEFAULT_RISK_LEVELS.stopPercents[1]),
+        parseLevel(stopLevels[2], DEFAULT_RISK_LEVELS.stopPercents[2])
+      ] as [number, number, number],
+      trailingPercents: [
+        parseLevel(trailingLevels[0], DEFAULT_RISK_LEVELS.trailingPercents[0]),
+        parseLevel(trailingLevels[1], DEFAULT_RISK_LEVELS.trailingPercents[1]),
+        parseLevel(trailingLevels[2], DEFAULT_RISK_LEVELS.trailingPercents[2])
+      ] as [number, number, number]
+    };
+
+    saveRiskLevelsConfig(nextConfig);
+    setStopLevels(nextConfig.stopPercents.map(String));
+    setTrailingLevels(nextConfig.trailingPercents.map(String));
+
+    setTimeout(() => {
+      setIsSavingRiskLevels(false);
+      alert('Niveles de stop y trailing guardados. Se aplicarán en Posiciones Abiertas.');
+    }, 300);
   };
 
   const handleDeletePortfolio = async (portfolioId?: number, portfolioName?: string) => {
@@ -126,6 +204,80 @@ const SettingsView: React.FC = () => {
 
   const handleExportExcel = async () => {
     await exportTransactionsToExcel();
+  };
+
+  const handleExportBackupJson = async () => {
+    try {
+      const data = {
+        transactions: await db.transactions.toArray(),
+        liquidity: await db.liquidity.toArray(),
+        portfolios: await db.portfolios.toArray(),
+        assetTypes: await db.assetTypes.toArray(),
+        allocationTargets: await db.allocationTargets.toArray(),
+        positionNotes: await db.positionNotes.toArray(),
+        metadata: {
+          priceFeedUrl: localStorage.getItem('PRICE_FEED_URL') || '',
+          riskLevels: getRiskLevelsConfig(),
+          exportedAt: new Date().toISOString()
+        }
+      };
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `peakys_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting backup JSON:', error);
+      alert('No se pudo generar la copia JSON. Revisa la conexión API.');
+    }
+  };
+
+  const handleImportBackupJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+
+      if (!confirm('Se restaurará la copia seleccionada y se reemplazarán los datos actuales. ¿Continuar?')) {
+        return;
+      }
+
+      await db.transactions.clear();
+      await db.liquidity.clear();
+      await db.portfolios.clear();
+      await db.assetTypes.clear();
+      await db.allocationTargets.clear();
+      await db.positionNotes.clear();
+
+      await db.transactions.bulkAdd(Array.isArray(parsed.transactions) ? parsed.transactions : []);
+      await db.liquidity.bulkAdd(Array.isArray(parsed.liquidity) ? parsed.liquidity : []);
+      await db.portfolios.bulkAdd(Array.isArray(parsed.portfolios) ? parsed.portfolios : []);
+      await db.assetTypes.bulkAdd(Array.isArray(parsed.assetTypes) ? parsed.assetTypes : []);
+      await db.allocationTargets.bulkAdd(Array.isArray(parsed.allocationTargets) ? parsed.allocationTargets : []);
+      await db.positionNotes.bulkAdd(Array.isArray(parsed.positionNotes) ? parsed.positionNotes : []);
+
+      if (typeof parsed?.metadata?.priceFeedUrl === 'string') {
+        localStorage.setItem('PRICE_FEED_URL', parsed.metadata.priceFeedUrl);
+      }
+      if (parsed?.metadata?.riskLevels) {
+        saveRiskLevelsConfig(parsed.metadata.riskLevels);
+      }
+
+      alert('Copia restaurada correctamente. Se recargará la aplicación.');
+      window.location.reload();
+    } catch (error) {
+      console.error('Error importing backup JSON:', error);
+      alert('No se pudo restaurar la copia JSON. Verifica el archivo.');
+    } finally {
+      if (backupInputRef.current) backupInputRef.current.value = '';
+    }
   };
 
   return (
@@ -200,6 +352,7 @@ const SettingsView: React.FC = () => {
 
         <Card title="Fuente de Datos (Google Sheets)">
            <div className="space-y-4">
+              <p className="text-xs text-slate-400">Pega aquí la URL de tu hoja de Google Sheets para precios y datos en vivo.</p>
               <div className="flex gap-2 mt-2">
                  <input type="text" value={priceFeedUrl} onChange={(e) => setPriceFeedUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"/>
                  <button onClick={handleSavePriceUrl} disabled={isSavingUrl} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap">
@@ -208,17 +361,104 @@ const SettingsView: React.FC = () => {
               </div>
            </div>
         </Card>
+
+        <Card title="Niveles de Stops y Take Profit / Trailing">
+          <div className="space-y-4">
+            <p className="text-xs text-slate-400">
+              Define aquí los porcentajes que se usarán para calcular automáticamente 3 precios de stop y 3 precios de activación de take profit / trailing
+              en cada posición abierta, tomando como base el precio medio de compra.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 space-y-2">
+                <p className="text-sm text-rose-300 font-medium">Stops (%)</p>
+                {stopLevels.map((level, index) => (
+                  <div key={`stop-${index}`} className="flex items-center gap-2">
+                    <label className="text-xs text-slate-400 w-14">Stop {index + 1}</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={level}
+                      onChange={(e) => updateLevel(setStopLevels, index, e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"
+                    />
+                    <span className="text-xs text-slate-500">%</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 space-y-2">
+                <p className="text-sm text-emerald-300 font-medium">Take Profit / Trailing Activación (%)</p>
+                {trailingLevels.map((level, index) => (
+                  <div key={`trail-${index}`} className="flex items-center gap-2">
+                    <label className="text-xs text-slate-400 w-14">TP {index + 1}</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={level}
+                      onChange={(e) => updateLevel(setTrailingLevels, index, e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"
+                    />
+                    <span className="text-xs text-slate-500">%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleSaveRiskLevels}
+                disabled={isSavingRiskLevels}
+                className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+              >
+                {isSavingRiskLevels ? 'Guardando...' : 'Guardar Niveles'}
+              </button>
+            </div>
+          </div>
+        </Card>
         
         <Card title="Herramientas Excel (Operativas)">
           <div className="space-y-4">
+            <p className="text-xs text-slate-400">Exporta todas las transacciones y aportaciones de todas tus carteras en un único archivo Excel.</p>
             <div className="flex flex-col sm:flex-row items-center gap-4">
                <input type="file" ref={fileInputRef} accept=".xlsx, .xls" onChange={handleFileChange} className="hidden"/>
                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="w-full sm:w-auto flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                  {isImporting ? <span>Procesando...</span> : <><Icons.Add size={18} className="rotate-45" /> Subir Excel Transacciones</>}
                </button>
                <button onClick={handleExportExcel} className="w-full sm:w-auto flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors">
-                  <Icons.Arrow size={18} className="rotate-90" /> Descargar Excel Transacciones
+                  <Icons.Arrow size={18} className="rotate-90" /> Descargar Excel (Todas las transacciones)
                </button>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Copia de Seguridad JSON">
+          <div className="space-y-4">
+            <p className="text-xs text-slate-400">
+              Exporta una copia completa de tus datos y restáurala cuando necesites recuperar la información.
+            </p>
+            <input
+              type="file"
+              ref={backupInputRef}
+              accept="application/json,.json"
+              onChange={handleImportBackupJson}
+              className="hidden"
+            />
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <button
+                onClick={handleExportBackupJson}
+                className="w-full sm:w-auto flex-1 bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors"
+              >
+                <Icons.Save size={18} /> Descargar Copia JSON
+              </button>
+              <button
+                onClick={() => backupInputRef.current?.click()}
+                className="w-full sm:w-auto flex-1 bg-slate-700 hover:bg-slate-600 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors"
+              >
+                <Icons.Add size={18} className="rotate-45" /> Restaurar Copia JSON
+              </button>
             </div>
           </div>
         </Card>
