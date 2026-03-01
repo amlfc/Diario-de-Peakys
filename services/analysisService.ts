@@ -63,6 +63,31 @@ const toNumber = (val: any): number => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
+const KNOWN_CURRENCIES = new Set([
+  'EUR', 'USD', 'GBP', 'CHF', 'CAD', 'JPY', 'AUD', 'HKD',
+  'NZD', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON',
+  'TRY', 'MXN', 'BRL', 'ZAR', 'SGD', 'CNH', 'CNY'
+]);
+
+const isCurrencyExchangeTransaction = (tx: Transaction): boolean => {
+  const ticker = (tx.ticker || '').toUpperCase().trim();
+  const assetType = (tx.assetType || '').toLowerCase();
+  const assetName = (tx.assetName || '').toLowerCase();
+  const notes = (tx.notes || '').toLowerCase();
+
+  const pairMatch = ticker.match(/^([A-Z]{3})[.\/_-]?([A-Z]{3})$/);
+  const isForexPair = !!pairMatch
+    && pairMatch[1] !== pairMatch[2]
+    && KNOWN_CURRENCIES.has(pairMatch[1])
+    && KNOWN_CURRENCIES.has(pairMatch[2]);
+
+  const looksLikeFxByLabels = [assetType, assetName, notes].some(field =>
+    field.includes('divisa') || field.includes('forex') || field.includes('fx') || field.includes('cambio')
+  );
+
+  return isForexPair || looksLikeFxByLabels;
+};
+
 // --- CORE LOGIC: Replay History (FIFO real por lotes) ---
 export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[] => {
   const sortedTxs = [...transactions].sort(
@@ -85,7 +110,7 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
   sortedTxs.forEach((rawTx, index) => {
     // Movimientos internos (cambios de divisa, traspasos no-cash, etc.)
     // no deben contaminar el histórico de operaciones cerradas.
-    if ((rawTx as any).excludeFromMetrics || (rawTx as any).nonCash) return;
+    if ((rawTx as any).excludeFromMetrics || (rawTx as any).nonCash || isCurrencyExchangeTransaction(rawTx)) return;
     const tx: Transaction = {
       ...rawTx,
       quantity: toNumber(rawTx.quantity),
