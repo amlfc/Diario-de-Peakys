@@ -74,6 +74,31 @@ const isBuyOperation = (type: string): boolean => {
   return t.includes('compra') || t.includes('buy') || t === 'b' || t === 'c';
 };
 
+const KNOWN_CURRENCIES = new Set([
+  'EUR', 'USD', 'GBP', 'CHF', 'CAD', 'JPY', 'AUD', 'HKD',
+  'NZD', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON',
+  'TRY', 'MXN', 'BRL', 'ZAR', 'SGD', 'CNH', 'CNY'
+]);
+
+const isCurrencyExchangeTransaction = (rawTx: any): boolean => {
+  const ticker = String(resolveKey(rawTx, ['ticker']) || '').toUpperCase().trim();
+  const assetType = String(resolveKey(rawTx, ['assetType', 'asset_type', 'tipo_activo']) || '').toLowerCase();
+  const assetName = String(resolveKey(rawTx, ['assetName', 'asset_name', 'nombre']) || '').toLowerCase();
+  const notes = String(resolveKey(rawTx, ['notes', 'nota']) || '').toLowerCase();
+
+  const pairMatch = ticker.match(/^([A-Z]{3})[.\/_-]?([A-Z]{3})$/);
+  const isForexPair = !!pairMatch
+    && pairMatch[1] !== pairMatch[2]
+    && KNOWN_CURRENCIES.has(pairMatch[1])
+    && KNOWN_CURRENCIES.has(pairMatch[2]);
+
+  const looksLikeFxByLabels = [assetType, assetName, notes].some(field =>
+    field.includes('divisa') || field.includes('forex') || field.includes('fx') || field.includes('cambio')
+  );
+
+  return isForexPair || looksLikeFxByLabels;
+};
+
 // --- END HELPERS ---
 
 const getCsvUrl = (): string | null => {
@@ -248,7 +273,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   transactions.forEach(rawTx => {
-    if ((rawTx as any).excludeFromMetrics) return;
+    if ((rawTx as any).excludeFromMetrics || isCurrencyExchangeTransaction(rawTx)) return;
     // --- Sanitización de campos numéricos ---
     const rawQuantity = toNumber(resolveKey(rawTx, ['quantity', 'qty', 'cantidad']));
     const quantity = Math.abs(rawQuantity); // signo lo decide el tipo (Compra/Venta)
@@ -342,24 +367,27 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
         return;
       }
 
+      const sellQty = Math.min(quantity, pos.quantity);
+      if (sellQty <= 0) return;
+
       const sellCommissionEur = commission * effectiveFxRate;
-      const sellValueGrossEur = quantity * price * effectiveFxRate;
+      const sellValueGrossEur = sellQty * price * effectiveFxRate;
       const sellValueNetEur   = sellValueGrossEur - sellCommissionEur;
 
-      const costOfSoldEur = quantity * pos.avgPriceEur;
+      const costOfSoldEur = sellQty * pos.avgPriceEur;
 
       // Reducimos coste de origen proporcionalmente al tamaño vendido
-      const proportion = quantity / pos.quantity;
+      const proportion = sellQty / pos.quantity;
       pos.totalCostOrigin -= (pos.totalCostOrigin * proportion);
 
       const pnl = sellValueNetEur - costOfSoldEur;
       pos.realizedPnLEur += pnl;
 
-      pos.quantity -= quantity;
+      pos.quantity -= sellQty;
 
       // La caja sube por el ingreso neto de la venta EN LA DIVISA de la operación
       const cashCcy = currencyPlatform as string;
-      const sellValueNetOrigin = (quantity * price) - commission;
+      const sellValueNetOrigin = (sellQty * price) - commission;
       if (!(rawTx as any).nonCash) {
         cashByCurrency[cashCcy] = (cashByCurrency[cashCcy] || 0) + sellValueNetOrigin;
       }
