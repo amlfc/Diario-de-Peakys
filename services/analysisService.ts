@@ -83,7 +83,9 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
   const fxOf = (tx: Transaction) => (tx.currencyPlatform === 'EUR' ? 1 : (toNumber(tx.fxRateToEur) || 1));
 
   sortedTxs.forEach((rawTx, index) => {
-    if ((rawTx as any).excludeFromMetrics) return;
+    // Movimientos internos (cambios de divisa, traspasos no-cash, etc.)
+    // no deben contaminar el histórico de operaciones cerradas.
+    if ((rawTx as any).excludeFromMetrics || (rawTx as any).nonCash) return;
     const tx: Transaction = {
       ...rawTx,
       quantity: toNumber(rawTx.quantity),
