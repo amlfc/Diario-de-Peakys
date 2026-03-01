@@ -248,6 +248,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   transactions.forEach(rawTx => {
+    if ((rawTx as any).excludeFromMetrics) return;
     // --- Sanitización de campos numéricos ---
     const rawQuantity = toNumber(resolveKey(rawTx, ['quantity', 'qty', 'cantidad']));
     const quantity = Math.abs(rawQuantity); // signo lo decide el tipo (Compra/Venta)
