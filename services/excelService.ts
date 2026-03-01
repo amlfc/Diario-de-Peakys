@@ -171,6 +171,7 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
                 const rawPrice = cleanNumber(getCell(row, colMap, ['Precio', 'Price', 'Coste', 'Cost', 'Amount']));
                 const commRaw = cleanNumber(getCell(row, colMap, ['Comision', 'Comisión', 'Commission', 'Fees', 'Gastos']));
                 const fxRaw = cleanNumber(getCell(row, colMap, ['Tipo Cambio', 'FX', 'FX Rate', 'Cambio']));
+                const excludeRaw = (getCell(row, colMap, ['Ignorar Métricas', 'Exclude Metrics', 'Excluir']) || '').toString().toLowerCase().trim();
                 
                 const typeRaw = getCell(row, colMap, ['Tipo', 'Type', 'Operacion', 'B/S']);
                 const typeStr = (typeRaw || '').toString().toLowerCase();
@@ -216,6 +217,7 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
                         commission: Math.abs(commRaw),
                         currencyPlatform: (getCell(row, colMap, ['Divisa', 'Currency', 'Moneda']) || 'EUR').toString().toUpperCase().trim() as Currency,
                         fxRateToEur: fxRaw > 0 ? fxRaw : 1,
+                        excludeFromMetrics: ['1', 'si', 'sí', 'true', 'x', 'yes', 'y'].includes(excludeRaw),
                         notes: getCell(row, colMap, ['Notas', 'Notes', 'Comentarios'])?.toString() || ''
                     });
                 }
@@ -342,6 +344,7 @@ export const exportTransactionsToExcel = async (): Promise<void> => {
         'Comisión': t.commission,
         'Divisa': t.currencyPlatform,
         'Tipo Cambio': t.fxRateToEur,
+        'Ignorar Métricas': t.excludeFromMetrics ? 'Sí' : '',
         'Notas': t.notes || ''
         }));
         const wsTx = utils.json_to_sheet(txData);

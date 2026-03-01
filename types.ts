@@ -84,6 +84,7 @@ export interface Transaction {
   commission: number; // In platform currency
   currencyPlatform: Currency;
   fxRateToEur: number; // Exchange rate at time of transaction
+  excludeFromMetrics?: boolean; // Si true, la operación se ignora en posiciones/P&L (útil para cambios de divisa)
   nonCash?: boolean; // Si true: ajusta posición/coste pero NO afecta a liquidez
   notes?: string;
   user_id?: number;

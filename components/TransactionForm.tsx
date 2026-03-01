@@ -28,6 +28,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
     commission: '0',
     currencyPlatform: Currency.EUR,
     fxRateToEur: '1',
+    excludeFromMetrics: false,
   });
 
   useEffect(() => {
@@ -44,6 +45,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         commission: initialData.commission.toString(),
         currencyPlatform: initialData.currencyPlatform,
         fxRateToEur: initialData.fxRateToEur.toString(),
+        excludeFromMetrics: !!initialData.excludeFromMetrics,
       });
     }
   }, [initialData]);
@@ -80,6 +82,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
       commission: parseFloat(formData.commission),
       currencyPlatform: formData.currencyPlatform as Currency,
       fxRateToEur: parseFloat(formData.fxRateToEur),
+      excludeFromMetrics: !!formData.excludeFromMetrics,
     };
 
     if (initialData && initialData.id) {
@@ -96,7 +99,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target as HTMLInputElement;
 
     if (name === 'currencyPlatform') {
       const newRate = getFxRateToEur(value);
@@ -106,7 +109,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         fxRateToEur: newRate.toString() 
       });
     } else {
-      setFormData({ ...formData, [name]: value });
+      setFormData({ ...formData, [name]: type === 'checkbox' ? checked : value });
     }
   };
 
@@ -177,6 +180,21 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         <div>
           <label className="block text-xs text-slate-400 mb-1">Tipo Cambio a EUR</label>
           <input type="number" step="0.0001" name="fxRateToEur" value={formData.fxRateToEur} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none" title="Se calcula automáticamente si la lista de precios está cargada"/>
+        </div>
+
+
+
+        <div className="md:col-span-2 lg:col-span-3">
+          <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              name="excludeFromMetrics"
+              checked={formData.excludeFromMetrics}
+              onChange={handleChange}
+              className="mt-0.5"
+            />
+            <span>Ignorar en métricas (útil para cambios de divisa o movimientos internos)</span>
+          </label>
         </div>
 
         <div className="col-span-1 md:col-span-2 lg:col-span-3 flex justify-end gap-3 mt-4">
