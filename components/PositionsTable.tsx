@@ -6,6 +6,7 @@ import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { db } from '../db';
 import PositionNotesModal from './PositionNotesModal';
 import { getRiskLevelsConfig } from '../utils/riskLevels';
+import ClosePositionModal from './ClosePositionModal';
 
 interface PositionsTableProps {
   positions: Position[];
@@ -25,6 +26,11 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
     ticker: string;
     initialNote: string;
   }>({ open: false, title: '', key: '', portfolio: '', ticker: '', initialNote: '' });
+
+  const [closePositionModal, setClosePositionModal] = useState<{
+    open: boolean;
+    position: Position | null;
+  }>({ open: false, position: null });
 
   const [manualOrdersByPosition, setManualOrdersByPosition] = useState<Record<string, { stopPrice?: string; trailingActivationPrice?: string }>>(() => {
     try {
@@ -166,11 +172,12 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
               <th className="px-4 py-3 text-right">TP/Trail Auto</th>
               <th className="px-4 py-3 text-right">Stop Manual</th>
               <th className="px-4 py-3 text-right">TP/Trail Manual</th>
+              <th className="px-4 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700">
             {sortedPositions.length === 0 ? (
-              <tr><td colSpan={15} className="px-6 py-8 text-center text-slate-500">No hay posiciones abiertas para esta selección.</td></tr>
+              <tr><td colSpan={16} className="px-6 py-8 text-center text-slate-500">No hay posiciones abiertas para esta selección.</td></tr>
             ) : (
               sortedPositions.map((pos) => {
                 const isProfitEur = pos.unrealizedPnLEur >= 0;
@@ -271,6 +278,16 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
                         className="w-28 bg-slate-900 border border-slate-700 rounded p-1.5 text-white text-xs text-right focus:border-blue-500 outline-none"
                       />
                     </td>
+                    <td className="px-4 py-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => setClosePositionModal({ open: true, position: pos })}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg bg-rose-600/90 text-white hover:bg-rose-500 transition-colors"
+                        title="Cerrar posición con venta"
+                      >
+                        <Icons.Down size={13} /> Cerrar
+                      </button>
+                    </td>
                   </tr>
                 );
               })
@@ -286,6 +303,12 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
       initialNote={notesModal.initialNote}
       onClose={() => setNotesModal({ open: false, title: '', key: '', portfolio: '', ticker: '', initialNote: '' })}
       onSave={(note) => saveNotes(notesModal.key, notesModal.portfolio, notesModal.ticker, note)}
+    />
+
+    <ClosePositionModal
+      isOpen={closePositionModal.open}
+      position={closePositionModal.position}
+      onClose={() => setClosePositionModal({ open: false, position: null })}
     />
     </>
   );
