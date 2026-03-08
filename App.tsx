@@ -18,6 +18,16 @@ import AdminView from './components/AdminView';
 import { Icons } from './components/ui/Icons';
 import { useAuth } from './context/AuthContext';
 
+
+const normalizeId = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+};
+
 const SidebarItem = ({ icon: Icon, label, active, onClick }: any) => (
   <button 
     onClick={onClick}
@@ -64,9 +74,10 @@ const AppContent: React.FC = () => {
   const userPortfolios = useMemo(() => {
       if (!user) return [];
       if (user.role === 'admin') return rawPortfolios;
-      // Basic User: See owned portfolios. 
-      // NOTE: If legacy data exists without owner_id, it will be invisible to new users unless claimed.
-      return rawPortfolios.filter(p => p.owner_id === user.id);
+      const currentUserId = normalizeId(user.id);
+      if (!currentUserId) return [];
+      // Basic User: See owned portfolios even if API sends owner_id as string.
+      return rawPortfolios.filter(p => normalizeId(p.owner_id) === currentUserId);
   }, [rawPortfolios, user]);
 
   // Reset selected portfolio if it becomes invalid after login/switch
