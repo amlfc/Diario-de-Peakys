@@ -1,28 +1,39 @@
 
 import React, { useState } from 'react';
 import { db } from '../db';
+import { api } from '../services/apiService';
 import { Icons } from './ui/Icons';
 import { Card } from './ui/Card';
 import { useLiveData } from '../hooks/useLiveData';
 
 const AdminView: React.FC = () => {
     const users = useLiveData(() => db.users.toArray()) || [];
-    const portfolios = useLiveData(() => db.portfolios.toArray()) || [];
+    const portfolios = useLiveData(async () => (await api.get('pky_portfolios')) || [], [updatingId]) || [];
     
     const [updatingId, setUpdatingId] = useState<number | null>(null);
+
+    const normalizeId = (value: unknown): number | undefined => {
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+        if (typeof value === 'string') {
+            const parsed = Number(value);
+            if (Number.isFinite(parsed)) return parsed;
+        }
+        return undefined;
+    };
 
     const handleAssignPortfolio = async (portfolioId: number, newOwnerIdStr: string) => {
         if (!portfolioId) return;
         
-        const newOwnerId = parseInt(newOwnerIdStr);
+        const newOwnerId = Number.parseInt(newOwnerIdStr, 10);
+        const nextOwnerId = Number.isNaN(newOwnerId) || newOwnerId === -1 ? undefined : newOwnerId;
+
         setUpdatingId(portfolioId);
         try {
-            // If value is -1 (Sin Asignar), we set null (or handle backend logic for null)
-            // Depending on backend, null might need special handling, but assuming SQL handles NULL or 0.
-            // For safety, we send the ID or 0/null.
-            await db.portfolios.update(portfolioId, { owner_id: isNaN(newOwnerId) || newOwnerId === -1 ? undefined : newOwnerId });
-            
-            // Force refresh implies db listener will trigger, but we can also alert
+            await api.update('pky_portfolios', portfolioId, {
+                owner_id: nextOwnerId,
+                user_id: nextOwnerId
+            });
+            db.notify();
         } catch (error) {
             console.error("Error assigning portfolio", error);
             alert("Error al asignar cartera. Revisa la consola.");
@@ -82,7 +93,8 @@ const AdminView: React.FC = () => {
                             </thead>
                             <tbody className="divide-y divide-slate-700">
                                 {portfolios.map(p => {
-                                    const currentOwner = users.find(u => u.id === p.owner_id);
+                                    const portfolioOwnerId = normalizeId((p as any).owner_id);
+                                    const currentOwner = users.find(u => normalizeId(u.id) === portfolioOwnerId);
                                     return (
                                         <tr key={p.id} className="hover:bg-slate-700/30">
                                             <td className="px-4 py-3 text-white font-medium">{p.name}</td>
@@ -99,7 +111,7 @@ const AdminView: React.FC = () => {
                                             <td className="px-4 py-3">
                                                 <select 
                                                     className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-white outline-none focus:border-blue-500"
-                                                    value={p.owner_id || -1}
+                                                    value={portfolioOwnerId ?? -1}
                                                     onChange={(e) => handleAssignPortfolio(p.id!, e.target.value)}
                                                     disabled={updatingId === p.id}
                                                 >
