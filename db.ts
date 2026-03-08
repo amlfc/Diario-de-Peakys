@@ -53,6 +53,13 @@ const isPortfolioScopedAdmin = (context: UserScopeContext) => {
   return context.role === 'admin' && !!context.username && ADMIN_PORTFOLIO_SCOPED_USERS.has(context.username);
 };
 
+const PORTFOLIO_BASED_TABLES = new Set([
+  'pky_transactions',
+  'pky_liquidity',
+  'pky_allocation_targets',
+  'pky_position_notes'
+]);
+
 class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number }> {
   name: string; // Nombre real de la tabla en SQL (ej: pky_transactions)
   db: VirtualDatabase;
@@ -62,7 +69,7 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
     this.db = db;
   }
 
-  private applyReadScope(items: T[]): T[] {
+  private applyReadScope(items: T[], ownedPortfolioNames?: Set<string>): T[] {
     if (!shouldScopeByUser(this.name)) return items;
     const context = getCurrentUserContext();
     const { id: currentUserId, role } = context;
@@ -87,7 +94,17 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
       }
 
       if (hasUserId) {
-        return rowUserId === currentUserId;
+        if (rowUserId === currentUserId) {
+          return true;
+        }
+        if (restrictAdminToOwnedPortfolios && ownedPortfolioNames && typeof item.portfolio === 'string') {
+          return ownedPortfolioNames.has(item.portfolio);
+        }
+        return false;
+      }
+
+      if (restrictAdminToOwnedPortfolios && ownedPortfolioNames && typeof item.portfolio === 'string') {
+        return ownedPortfolioNames.has(item.portfolio);
       }
 
       // Compatibilidad: los admins pueden seguir viendo filas legacy sin user_id
@@ -114,7 +131,31 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
 
   async toArray(): Promise<T[]> {
     const data = await api.get(this.name);
-    return this.applyReadScope(data as T[]);
+    const context = getCurrentUserContext();
+    const currentUserId = context.id;
+
+    let ownedPortfolioNames: Set<string> | undefined;
+    if (
+      currentUserId &&
+      isPortfolioScopedAdmin(context) &&
+      this.name !== 'pky_portfolios' &&
+      PORTFOLIO_BASED_TABLES.has(this.name)
+    ) {
+      const rawPortfolios = await api.get('pky_portfolios');
+      ownedPortfolioNames = new Set(
+        (rawPortfolios as any[])
+          .filter((portfolio) => {
+            const ownerId = normalizeUserId(portfolio?.owner_id);
+            if (ownerId !== undefined) return ownerId === currentUserId;
+            const userId = normalizeUserId(portfolio?.user_id);
+            return userId === currentUserId;
+          })
+          .map((portfolio) => portfolio?.name)
+          .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+      );
+    }
+
+    return this.applyReadScope(data as T[], ownedPortfolioNames);
   }
 
   where(field: string) {
