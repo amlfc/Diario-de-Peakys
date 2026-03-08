@@ -13,7 +13,9 @@ const USER_SCOPED_TABLES = new Set([
   'pky_position_notes'
 ]);
 
-type UserScopeContext = { id?: number; role?: 'admin' | 'user' };
+type UserScopeContext = { id?: number; role?: 'admin' | 'user'; username?: string };
+
+const ADMIN_PORTFOLIO_SCOPED_USERS = new Set(['sevi']);
 
 const normalizeUserId = (value: unknown): number | undefined => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -37,7 +39,8 @@ const getCurrentUserContext = (): UserScopeContext => {
     const parsed = JSON.parse(raw);
     return {
       id: normalizeUserId(parsed?.id),
-      role: normalizeRole(parsed?.role)
+      role: normalizeRole(parsed?.role),
+      username: typeof parsed?.username === 'string' ? parsed.username.trim().toLowerCase() : undefined
     };
   } catch {
     return {};
@@ -45,6 +48,10 @@ const getCurrentUserContext = (): UserScopeContext => {
 };
 
 const shouldScopeByUser = (table: string) => USER_SCOPED_TABLES.has(table);
+
+const isPortfolioScopedAdmin = (context: UserScopeContext) => {
+  return context.role === 'admin' && !!context.username && ADMIN_PORTFOLIO_SCOPED_USERS.has(context.username);
+};
 
 class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number }> {
   name: string; // Nombre real de la tabla en SQL (ej: pky_transactions)
@@ -57,31 +64,35 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
 
   private applyReadScope(items: T[]): T[] {
     if (!shouldScopeByUser(this.name)) return items;
-    const { id: currentUserId, role } = getCurrentUserContext();
+    const context = getCurrentUserContext();
+    const { id: currentUserId, role } = context;
+    const restrictAdminToOwnedPortfolios = isPortfolioScopedAdmin(context);
     if (!currentUserId) return [];
 
     return items.filter((item: any) => {
-      const hasUserId = typeof item.user_id === 'number';
+      const rowUserId = normalizeUserId(item.user_id);
+      const rowOwnerId = normalizeUserId(item.owner_id);
+      const hasUserId = rowUserId !== undefined;
 
       // Carteras: priorizar owner_id para no perder asignaciones históricas,
       // incluso si user_id quedó desalineado por cambios previos.
       if (this.name === 'pky_portfolios') {
-        if (typeof item.owner_id === 'number') {
-          return item.owner_id === currentUserId;
+        if (rowOwnerId !== undefined) {
+          return rowOwnerId === currentUserId;
         }
         if (hasUserId) {
-          return item.user_id === currentUserId;
+          return rowUserId === currentUserId;
         }
-        return role === 'admin';
+        return role === 'admin' && !restrictAdminToOwnedPortfolios;
       }
 
       if (hasUserId) {
-        return item.user_id === currentUserId;
+        return rowUserId === currentUserId;
       }
 
       // Compatibilidad: los admins pueden seguir viendo filas legacy sin user_id
       // para no perder datos previos a la migración de ownership.
-      if (role === 'admin') {
+      if (role === 'admin' && !restrictAdminToOwnedPortfolios) {
         return true;
       }
 
