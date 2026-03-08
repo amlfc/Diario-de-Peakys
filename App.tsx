@@ -76,8 +76,13 @@ const AppContent: React.FC = () => {
       if (user.role === 'admin') return rawPortfolios;
       const currentUserId = normalizeId(user.id);
       if (!currentUserId) return [];
-      // Basic User: See owned portfolios even if API sends owner_id as string.
-      return rawPortfolios.filter(p => normalizeId(p.owner_id) === currentUserId);
+      // Basic User: See owned portfolios even if API sends IDs as strings,
+      // and keep compatibility with legacy rows that only have user_id.
+      return rawPortfolios.filter(p => {
+        const ownerId = normalizeId(p.owner_id);
+        if (ownerId !== undefined) return ownerId === currentUserId;
+        return normalizeId(p.user_id) === currentUserId;
+      });
   }, [rawPortfolios, user]);
 
   // Reset selected portfolio if it becomes invalid after login/switch
