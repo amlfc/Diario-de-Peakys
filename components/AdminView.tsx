@@ -7,10 +7,10 @@ import { Card } from './ui/Card';
 import { useLiveData } from '../hooks/useLiveData';
 
 const AdminView: React.FC = () => {
+    const [updatingId, setUpdatingId] = useState<number | null>(null);
+
     const users = useLiveData(() => db.users.toArray()) || [];
     const portfolios = useLiveData(async () => (await api.get('pky_portfolios')) || [], [updatingId]) || [];
-    
-    const [updatingId, setUpdatingId] = useState<number | null>(null);
 
     const normalizeId = (value: unknown): number | undefined => {
         if (typeof value === 'number' && Number.isFinite(value)) return value;
