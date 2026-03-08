@@ -32,6 +32,12 @@ const normalizeRole = (value: unknown): 'admin' | 'user' | undefined => {
   return normalized === 'admin' || normalized === 'user' ? normalized : undefined;
 };
 
+const normalizePortfolioName = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return normalized || undefined;
+};
+
 const getCurrentUserContext = (): UserScopeContext => {
   try {
     const raw = localStorage.getItem('pky_auth_user');
@@ -69,6 +75,12 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
     this.db = db;
   }
 
+  private isOwnedPortfolioRow(item: any, ownedPortfolioNames?: Set<string>) {
+    if (!PORTFOLIO_BASED_TABLES.has(this.name) || !ownedPortfolioNames) return false;
+    const portfolioName = normalizePortfolioName(item?.portfolio);
+    return !!portfolioName && ownedPortfolioNames.has(portfolioName);
+  }
+
   private applyReadScope(items: T[], ownedPortfolioNames?: Set<string>): T[] {
     if (!shouldScopeByUser(this.name)) return items;
     const context = getCurrentUserContext();
@@ -80,6 +92,7 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
       const rowUserId = normalizeUserId(item.user_id);
       const rowOwnerId = normalizeUserId(item.owner_id);
       const hasUserId = rowUserId !== undefined;
+      const belongsToOwnedPortfolio = this.isOwnedPortfolioRow(item, ownedPortfolioNames);
 
       // Carteras: priorizar owner_id para no perder asignaciones históricas,
       // incluso si user_id quedó desalineado por cambios previos.
@@ -97,14 +110,16 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
         if (rowUserId === currentUserId) {
           return true;
         }
-        if (restrictAdminToOwnedPortfolios && ownedPortfolioNames && typeof item.portfolio === 'string') {
-          return ownedPortfolioNames.has(item.portfolio);
+        if (restrictAdminToOwnedPortfolios && belongsToOwnedPortfolio) {
+          return true;
         }
         return false;
       }
 
-      if (restrictAdminToOwnedPortfolios && ownedPortfolioNames && typeof item.portfolio === 'string') {
-        return ownedPortfolioNames.has(item.portfolio);
+      // Compatibilidad: si el backend no persistió user_id pero la fila
+      // pertenece a una cartera del usuario, no la ocultamos.
+      if (belongsToOwnedPortfolio) {
+        return true;
       }
 
       // Compatibilidad: los admins pueden seguir viendo filas legacy sin user_id
@@ -137,7 +152,6 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
     let ownedPortfolioNames: Set<string> | undefined;
     if (
       currentUserId &&
-      isPortfolioScopedAdmin(context) &&
       this.name !== 'pky_portfolios' &&
       PORTFOLIO_BASED_TABLES.has(this.name)
     ) {
@@ -150,8 +164,8 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
             const userId = normalizeUserId(portfolio?.user_id);
             return userId === currentUserId;
           })
-          .map((portfolio) => portfolio?.name)
-          .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+          .map((portfolio) => normalizePortfolioName(portfolio?.name))
+          .filter((name): name is string => typeof name === 'string' && name.length > 0)
       );
     }
 
