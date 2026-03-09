@@ -38,6 +38,12 @@ const normalizePortfolioName = (value: unknown): string | undefined => {
   return normalized || undefined;
 };
 
+const normalizeEntityName = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return normalized || undefined;
+};
+
 const getCurrentUserContext = (): UserScopeContext => {
   try {
     const raw = localStorage.getItem('pky_auth_user');
@@ -81,12 +87,48 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
     return !!portfolioName && ownedPortfolioNames.has(portfolioName);
   }
 
+  private dedupeAssetTypeRows(items: T[]): T[] {
+    if (this.name !== 'pky_asset_types') return items;
+
+    const deduped = new Map<string, T>();
+
+    for (const item of items as any[]) {
+      const normalizedName = normalizeEntityName(item?.name);
+      if (!normalizedName) continue;
+
+      const existing = deduped.get(normalizedName);
+      if (!existing) {
+        deduped.set(normalizedName, item);
+        continue;
+      }
+
+      const existingUserId = normalizeUserId((existing as any)?.user_id);
+      const nextUserId = normalizeUserId(item?.user_id);
+
+      // Prefer user-scoped rows over legacy shared rows when both exist.
+      if (existingUserId === undefined && nextUserId !== undefined) {
+        deduped.set(normalizedName, item);
+      }
+    }
+
+    return Array.from(deduped.values());
+  }
+
   private applyReadScope(items: T[], ownedPortfolioNames?: Set<string>): T[] {
     if (!shouldScopeByUser(this.name)) return items;
     const context = getCurrentUserContext();
     const { id: currentUserId, role } = context;
     const restrictAdminToOwnedPortfolios = isPortfolioScopedAdmin(context);
     if (!currentUserId) return [];
+
+    if (this.name === 'pky_asset_types') {
+      const visibleRows = items.filter((item: any) => {
+        const rowUserId = normalizeUserId(item?.user_id);
+        return rowUserId === undefined || rowUserId === currentUserId;
+      });
+
+      return this.dedupeAssetTypeRows(visibleRows);
+    }
 
     return items.filter((item: any) => {
       const rowUserId = normalizeUserId(item.user_id);
@@ -169,7 +211,7 @@ class VirtualTable<T extends { id?: number; user_id?: number; owner_id?: number 
       );
     }
 
-    return this.applyReadScope(data as T[], ownedPortfolioNames);
+    return this.dedupeAssetTypeRows(this.applyReadScope(data as T[], ownedPortfolioNames));
   }
 
   where(field: string) {

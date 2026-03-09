@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../db';
 import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { AssetType, Currency, PortfolioOwner, TransactionType, DefaultAssetTypes, Transaction } from '../types';
@@ -57,6 +57,20 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
 
     setFormData(prev => ({ ...prev, portfolio: portfolios[0].name }));
   }, [initialData, formData.portfolio, portfolios]);
+
+  const assetTypeOptions = useMemo(() => {
+    const dbOptions = assetTypes
+      .map((item) => item?.name?.trim())
+      .filter((name): name is string => !!name);
+
+    const baseOptions = dbOptions.length > 0 ? dbOptions : Object.values(DefaultAssetTypes);
+    const currentValue = formData.assetType?.trim();
+
+    return Array.from(new Set([
+      ...(currentValue ? [currentValue] : []),
+      ...baseOptions,
+    ]));
+  }, [assetTypes, formData.assetType]);
 
  const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
@@ -154,7 +168,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         <div>
           <label className="block text-xs text-slate-400 mb-1">Tipo Activo</label>
           <select name="assetType" value={formData.assetType} onChange={handleChange} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none">
-            {assetTypes.length > 0 ? assetTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>) : <option value={DefaultAssetTypes.ActionLong}>{DefaultAssetTypes.ActionLong}</option>}
+            {assetTypeOptions.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         </div>
 

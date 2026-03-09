@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState } from 'react';
-import { Position, Currency, PositionNote, Transaction, TransactionType } from '../types';
+import { Position, Currency, PositionNote, Transaction, TransactionType, DefaultAssetTypes } from '../types';
 import { Icons } from './ui/Icons';
 import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { db } from '../db';
@@ -94,6 +94,14 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
   };
 
   const riskConfig = getRiskLevelsConfig();
+
+  const assetTypeOptions = useMemo(() => {
+    const dbOptions = assetTypes
+      .map((item) => item?.name?.trim())
+      .filter((name): name is string => !!name);
+
+    return dbOptions.length > 0 ? Array.from(new Set(dbOptions)) : Object.values(DefaultAssetTypes);
+  }, [assetTypes]);
 
   const updateManualOrder = (positionKey: string, field: 'stopPrice' | 'trailingActivationPrice', value: string) => {
     setManualOrdersByPosition(prev => {
@@ -196,6 +204,10 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
                   price: avgBuyPrice * (1 + level / 100)
                 }));
                 const manualOrders = manualOrdersByPosition[positionKey] || {};
+                const rowAssetTypeOptions = Array.from(new Set([
+                  ...(pos.assetType ? [pos.assetType] : []),
+                  ...assetTypeOptions
+                ]));
 
                 return (
                   <tr key={`${pos.portfolio}-${pos.ticker}`} className="hover:bg-slate-700/30 transition-colors">
@@ -219,7 +231,7 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
                         onChange={(e) => handleTypeChange(pos.portfolio, pos.ticker, e.target.value)}
                         className="bg-slate-900 border border-slate-600 text-slate-300 text-xs rounded px-2 py-1 focus:border-blue-500 outline-none max-w-[140px]"
                       >
-                        {assetTypes.map(at => <option key={at.id} value={at.name}>{at.name}</option>)}
+                        {rowAssetTypeOptions.map((name) => <option key={name} value={name}>{name}</option>)}
                       </select>
                     </td>
                     <td className="px-4 py-4 text-slate-400">{pos.portfolio}</td>
