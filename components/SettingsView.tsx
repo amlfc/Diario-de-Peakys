@@ -17,10 +17,6 @@ const SettingsView: React.FC = () => {
   const [apiUrl, setApiUrl] = useState(localStorage.getItem('HOSTINGER_API_URL') || '');
   const [isSavingApi, setIsSavingApi] = useState(false);
 
-  // FX API Config State
-  const [fxApiUrl, setFxApiUrl] = useState(localStorage.getItem('FX_API_URL') || '');
-  const [isSavingFxApi, setIsSavingFxApi] = useState(false);
-
   // Price Feed State
   const [priceFeedUrl, setPriceFeedUrl] = useState(localStorage.getItem('PRICE_FEED_URL') || '');
   const [isSavingUrl, setIsSavingUrl] = useState(false);
@@ -36,7 +32,6 @@ const SettingsView: React.FC = () => {
   const [isSavingPortfolio, setIsSavingPortfolio] = useState(false);
 
   const isApiConfigured = apiUrl.trim().length > 0;
-  const isFxApiConfigured = fxApiUrl.trim().length > 0;
   const isPriceFeedConfigured = priceFeedUrl.trim().length > 0;
 
   const isValidWebUrl = (value: string) => {
@@ -67,27 +62,6 @@ const SettingsView: React.FC = () => {
         setIsSavingApi(false);
         alert('Conexión API Guardada. La aplicación se recargará.');
         window.location.reload();
-    }, 500);
-  };
-
-  const handleSaveFxApiUrl = () => {
-    const trimmed = fxApiUrl.trim();
-    if (!trimmed) {
-      alert('Debes indicar la URL del servicio FX.');
-      return;
-    }
-    if (!isValidWebUrl(trimmed)) {
-      alert('La URL del servicio FX no es válida. Ejemplo: https://tudominio.com/fx-api');
-      return;
-    }
-
-    setIsSavingFxApi(true);
-    const cleanUrl = trimmed.replace(/\/$/, '');
-    localStorage.setItem('FX_API_URL', cleanUrl);
-    setTimeout(() => {
-      setIsSavingFxApi(false);
-      alert('Conexión FX guardada. La aplicación se recargará.');
-      window.location.reload();
     }, 500);
   };
 
@@ -338,13 +312,6 @@ const SettingsView: React.FC = () => {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-                <p className="text-[11px] text-slate-400">FX API URL</p>
-                <p className={`text-xs font-medium ${isFxApiConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>
-                  {isFxApiConfigured ? 'Configurada' : 'Pendiente de configurar'}
-                </p>
-              </div>
-
               <button
                 onClick={handleExportExcel}
                 className="rounded-lg border border-emerald-700/60 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-300 px-3 py-2 text-sm font-medium transition-colors"
@@ -371,24 +338,6 @@ const SettingsView: React.FC = () => {
                     </button>
                 </div>
             </div>
-        </Card>
-
-        <Card title="Servicio FastAPI FX">
-          <div className="space-y-2">
-            <p className="text-xs text-slate-400 mb-2">URL base del backend de divisas para exposición FX, carry, DXY y stress test.</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={fxApiUrl}
-                onChange={(e) => setFxApiUrl(e.target.value)}
-                placeholder="https://tudominio.com/fx-api"
-                className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm font-mono"
-              />
-              <button onClick={handleSaveFxApiUrl} disabled={isSavingFxApi} className="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap">
-                {isSavingFxApi ? '...' : 'Guardar FX API'}
-              </button>
-            </div>
-          </div>
         </Card>
 
         <Card title="Mis Carteras">
