@@ -165,3 +165,179 @@ export interface FundamentalRef {
   metric: string;
   reference: string;
 }
+
+export type FxAlertSeverity = 'high' | 'medium' | 'low';
+
+export interface FxAlert {
+  kind: string;
+  severity: FxAlertSeverity;
+  title: string;
+  message: string;
+  value?: number;
+  threshold?: number;
+}
+
+export interface FxOverviewPair {
+  ticker: string;
+  pair: string;
+  type: string;
+  currency?: string | null;
+  last_price: number;
+  day_change_pct: number;
+  z_score_52w: number;
+  percentile_1y?: number | null;
+  signal: string;
+}
+
+export interface FxOverviewResponse {
+  generated_at: string;
+  base_currency: string;
+  pairs: FxOverviewPair[];
+  alerts: FxAlert[];
+  excluded_tickers: string[];
+}
+
+export interface FxCarryRow {
+  currency: string;
+  pair: string;
+  ticker: string;
+  reference_rate_pct: number;
+  eur_rate_pct: number;
+  carry_pct: number;
+  volatility_30d_pct: number;
+  momentum_1m_pct: number;
+  carry_to_risk: number;
+  last_price: number;
+  signal: string;
+}
+
+export interface FxCarryResponse {
+  generated_at: string;
+  base_currency: string;
+  reference_rates_pct: Record<string, number>;
+  ranking: FxCarryRow[];
+  alerts: FxAlert[];
+  excluded_tickers: string[];
+}
+
+export interface FxExposureRow {
+  currency: string;
+  fx_pair: string;
+  positions_eur: number;
+  cash_eur: number;
+  exposure_eur: number;
+  share_pct: number;
+  hedge_ratio: number;
+  beta: number;
+  correlation: number;
+  observations: number;
+  notional_to_hedge_eur: number;
+  covered_share_pct: number;
+}
+
+export interface FxExposureResponse {
+  generated_at: string;
+  base_currency: string;
+  visible_portfolios: string[];
+  total_equity_eur: number;
+  currency_breakdown: FxExposureRow[];
+  donut: Array<{ name: string; value: number; share_pct: number }>;
+  usd_traffic_light: {
+    state: 'green' | 'orange' | 'red';
+    uncovered_share_pct: number;
+  };
+  excluded_tickers: string[];
+}
+
+export interface FxHedgeRatioResponse {
+  generated_at: string;
+  asset_ticker: string;
+  fx_pair: string;
+  window: number;
+  beta: number;
+  correlation: number;
+  hedge_ratio: number;
+  current_value_eur: number;
+  notional_to_hedge_eur: number;
+  observations: number;
+  excluded_tickers: string[];
+}
+
+export interface FxCorrelationMatrixResponse {
+  generated_at: string;
+  labels: string[];
+  matrix: Array<Array<number | null>>;
+  excluded_tickers: string[];
+}
+
+export interface FxDxyImpactResponse {
+  generated_at: string;
+  percentile_1y: number | null;
+  zone: 'weak' | 'neutral' | 'strong';
+  dxy_last: number | null;
+  eurusd_last: number | null;
+  eurusd_zscore_52w: number;
+  correlation_30d: number;
+  beta_30d: number;
+  usd_exposure_eur: number;
+  estimated_portfolio_impact_eur: number;
+  impact_example: {
+    dxy_shock_pct: number;
+    predicted_eurusd_change_pct: number;
+    usd_notional: number;
+    current_value_eur: number;
+    shocked_value_eur: number;
+    impact_eur: number;
+  };
+  chart: Array<{ date: string; eurusd: number; z_score: number }>;
+  alerts: FxAlert[];
+  excluded_tickers: string[];
+}
+
+export interface FxStressPositionImpact {
+  kind: 'position' | 'cash';
+  ticker?: string;
+  asset_name?: string;
+  currency: string;
+  portfolio?: string;
+  amount_origin?: number;
+  value_eur_current: number;
+  value_eur_shocked: number;
+  pnl_eur: number;
+  pnl_pct: number;
+  shock_pct: number;
+}
+
+export interface FxStressCurrencyImpact {
+  currency: string;
+  shock_pct: number;
+  current_eur: number;
+  shocked_eur: number;
+  pnl_eur: number;
+  pnl_pct: number;
+}
+
+export interface FxStressHedgeSuggestion {
+  currency: string;
+  fx_pair: string;
+  exposure_eur: number;
+  suggested_hedge_notional_eur: number;
+  scenario_shock_pct: number;
+}
+
+export interface FxStressResponse {
+  generated_at: string;
+  scenario: string;
+  shocks: Record<string, number>;
+  positions: FxStressPositionImpact[];
+  cash: FxStressPositionImpact[];
+  currency_impact: FxStressCurrencyImpact[];
+  portfolio_totals: {
+    current_value_eur: number;
+    shocked_value_eur: number;
+    pnl_eur: number;
+    pnl_pct: number;
+  };
+  how_to_hedge: FxStressHedgeSuggestion[];
+  excluded_tickers: string[];
+}

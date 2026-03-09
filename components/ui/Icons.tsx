@@ -18,7 +18,11 @@ import {
   FileSpreadsheet,
   FileText,
   BarChart2,
-  Target
+  Target,
+  CircleDollarSign,
+  Shield,
+  Bell,
+  Gauge
 } from 'lucide-react';
 
 export const Icons = {
@@ -39,5 +43,9 @@ export const Icons = {
   Excel: FileSpreadsheet,
   PDF: FileText,
   Chart: BarChart2,
-  Target: Target
+  Target: Target,
+  Divisas: CircleDollarSign,
+  Shield: Shield,
+  Bell: Bell,
+  Gauge: Gauge
 };

@@ -15,6 +15,7 @@ import LiquidityManager from './components/LiquidityManager';
 import ClosedOperationsAnalysis from './components/ClosedOperationsAnalysis';
 import LoginView from './components/LoginView';
 import AdminView from './components/AdminView';
+import FxView from './components/FxView';
 import { Icons } from './components/ui/Icons';
 import { useAuth } from './context/AuthContext';
 
@@ -54,7 +55,7 @@ const MobileNavItem = ({ icon: Icon, label, active, onClick }: any) => (
 
 const AppContent: React.FC = () => {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'positions' | 'transactions' | 'liquidity' | 'analysis' | 'settings' | 'admin'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'positions' | 'transactions' | 'liquidity' | 'analysis' | 'fx' | 'settings' | 'admin'>('dashboard');
   const [selectedPortfolio, setSelectedPortfolio] = useState<PortfolioOwner | 'ALL'>('ALL');
   
   const [isFormVisible, setIsFormVisible] = useState(false);
@@ -228,6 +229,7 @@ const AppContent: React.FC = () => {
             <SidebarItem icon={Icons.Transactions} label="Transacciones" active={activeTab === 'transactions'} onClick={() => setActiveTab('transactions')} />
             <SidebarItem icon={Icons.Liquidity} label="Gestión de Liquidez" active={activeTab === 'liquidity'} onClick={() => setActiveTab('liquidity')} />
             <SidebarItem icon={Icons.Diversification} label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
+            <SidebarItem icon={Icons.Divisas} label="Divisas" active={activeTab === 'fx'} onClick={() => setActiveTab('fx')} />
           </div>
 
           {user?.role === 'admin' && (
@@ -295,6 +297,7 @@ const AppContent: React.FC = () => {
                   {showDeepAnalysis ? <ClosedOperationsAnalysis transactions={allTransactions} /> : <><Diversification positions={positions} metrics={metrics} selectedPortfolio={selectedPortfolio} /><FundamentalRefTable /></>}
                </div>
             )}
+            {activeTab === 'fx' && <FxView selectedPortfolio={selectedPortfolio} user={user} />}
             {activeTab === 'settings' && <SettingsView />}
             {activeTab === 'admin' && user?.role === 'admin' && <AdminView />}
           </div>
@@ -306,6 +309,7 @@ const AppContent: React.FC = () => {
            <MobileNavItem icon={Icons.Transactions} label="Transac." active={activeTab === 'transactions'} onClick={() => setActiveTab('transactions')} />
            <MobileNavItem icon={Icons.Liquidity} label="Liquidez" active={activeTab === 'liquidity'} onClick={() => setActiveTab('liquidity')} />
            <MobileNavItem icon={Icons.Diversification} label="Análisis" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
+           <MobileNavItem icon={Icons.Divisas} label="Divisas" active={activeTab === 'fx'} onClick={() => setActiveTab('fx')} />
         </div>
       </main>
     </div>
