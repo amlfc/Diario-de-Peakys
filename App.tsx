@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { calculatePositionsAndMetrics } from './services/marketDataService';
+import { calculateAnalysisMetrics, calculateClosedTrades } from './services/analysisService';
 import { Position, DashboardMetrics, PortfolioOwner, Transaction, User } from './types';
 import { seedDatabase, db } from './db';
 import { useLiveData } from './hooks/useLiveData';
@@ -142,6 +143,7 @@ const AppContent: React.FC = () => {
       // The only risk is 'ALL' showing global data.
       
       const data = await calculatePositionsAndMetrics(selectedPortfolio);
+      const closedTradeMetrics = calculateAnalysisMetrics(calculateClosedTrades(allTransactions));
       
       // CLIENT SIDE SECURITY FILTER (Since we can't change backend/service easily)
       if (user?.role !== 'admin' && selectedPortfolio === 'ALL') {
@@ -154,13 +156,16 @@ const AppContent: React.FC = () => {
       }
       
       setPositions(data.activePositions);
-      setMetrics(data.dashboard);
+      setMetrics({
+        ...data.dashboard,
+        realizedPnLEur: closedTradeMetrics.totalProfitEur
+      });
     };
     
     refresh();
     const interval = setInterval(refresh, 5000);
     return () => clearInterval(interval);
-  }, [selectedPortfolio, transactionsTrigger, liquidityTrigger, userPortfolios]); 
+  }, [selectedPortfolio, transactionsTrigger, liquidityTrigger, userPortfolios, allTransactions]); 
 
   const handleAddNew = () => {
     setEditingTransaction(undefined);

@@ -47,6 +47,8 @@ export interface AnalysisMetrics {
   worstTrade: ClosedTrade | null;
 }
 
+const METRIC_EPSILON = 0.000001;
+
 // --- DATA SANITIZATION HELPERS ---
 const toNumber = (val: any): number => {
   if (typeof val === 'number' && !isNaN(val)) return val;
@@ -154,13 +156,6 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
       const avgCostOrigin = qtyBefore > 0.000001 ? costBeforeOrigin / qtyBefore : 0;
       const avgCostEur = qtyBefore > 0.000001 ? costBeforeEur / qtyBefore : 0;
 
-      // Venta neta en moneda
-      const sellRevenueGrossOrigin = tx.price * qty;
-      const sellRevenueNetOrigin = sellRevenueGrossOrigin - tx.commission;
-
-      // Venta neta en EUR (cada venta con SU fx del día)
-      const sellRevenueNetEur = sellRevenueNetOrigin * fx;
-
       // Coste FIFO en moneda y en EUR
       let remainingToSell = qty;
       let fifoCostOrigin = 0;
@@ -180,6 +175,16 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
       }
 
       const qtySoldEffective = qty - Math.max(0, remainingToSell);
+      if (qtySoldEffective <= METRIC_EPSILON) {
+        lotsByKey.set(key, lots);
+        return;
+      }
+
+      const matchedRatio = qtySoldEffective / qty;
+      const sellRevenueGrossOrigin = tx.price * qtySoldEffective;
+      const sellCommissionOrigin = tx.commission * matchedRatio;
+      const sellRevenueNetOrigin = sellRevenueGrossOrigin - sellCommissionOrigin;
+      const sellRevenueNetEur = sellRevenueNetOrigin * fx;
 
       const pnlOrigin = sellRevenueNetOrigin - fifoCostOrigin;
       const pnlEur = sellRevenueNetEur - fifoCostEur;
@@ -225,15 +230,17 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
 
 export const calculateAnalysisMetrics = (trades: ClosedTrade[]): AnalysisMetrics => {
   const totalTrades = trades.length;
-  const winners = trades.filter(t => t.netPnLEur > 0);
-  const losers = trades.filter(t => t.netPnLEur <= 0);
+  const winners = trades.filter(t => t.netPnLEur > METRIC_EPSILON);
+  const losers = trades.filter(t => t.netPnLEur < -METRIC_EPSILON);
 
   const totalProfit = trades.reduce((sum, t) => sum + t.netPnLEur, 0);
 
   const grossProfit = winners.reduce((sum, t) => sum + t.netPnLEur, 0);
   const grossLoss = Math.abs(losers.reduce((sum, t) => sum + t.netPnLEur, 0));
 
-  const profitFactor = grossLoss === 0 ? grossProfit : (grossProfit / grossLoss);
+  const profitFactor = grossLoss <= METRIC_EPSILON
+    ? (grossProfit > METRIC_EPSILON ? Number.POSITIVE_INFINITY : 0)
+    : (grossProfit / grossLoss);
 
   return {
     totalTrades,
@@ -255,6 +262,9 @@ export const calculateAnalysisMetrics = (trades: ClosedTrade[]): AnalysisMetrics
 
 // --- EXPORTERS ---
 
+const formatProfitFactor = (profitFactor: number): string =>
+  Number.isFinite(profitFactor) ? profitFactor.toFixed(2) : '∞';
+
 export const exportAnalysisToExcel = (trades: ClosedTrade[], metrics: AnalysisMetrics) => {
   const wb = utils.book_new();
 
@@ -263,7 +273,7 @@ export const exportAnalysisToExcel = (trades: ClosedTrade[], metrics: AnalysisMe
     { Métrica: 'Total Operaciones', Valor: metrics.totalTrades },
     { Métrica: 'Beneficio Neto Total (€)', Valor: metrics.totalProfitEur },
     { Métrica: 'Tasa de Acierto %', Valor: (metrics.winRate * 100).toFixed(2) + '%' },
-    { Métrica: 'Factor de Beneficio', Valor: metrics.profitFactor.toFixed(2) },
+    { Métrica: 'Factor de Beneficio', Valor: formatProfitFactor(metrics.profitFactor) },
     { Métrica: 'Promedio Ganancia (€)', Valor: metrics.avgWinEur },
     { Métrica: 'Promedio Pérdida (€)', Valor: metrics.avgLossEur },
   ];
@@ -331,7 +341,7 @@ doc.text(
   20, startY + 10
 );
 doc.text(`Tasa Acierto: ${(metrics.winRate * 100).toFixed(1)}%`, 80, startY + 10);
-doc.text(`Factor Beneficio: ${metrics.profitFactor.toFixed(2)}`, 140, startY + 10);
+doc.text(`Factor Beneficio: ${formatProfitFactor(metrics.profitFactor)}`, 140, startY + 10);
 
 // Row 2
 doc.setFontSize(10);

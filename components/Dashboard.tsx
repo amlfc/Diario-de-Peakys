@@ -102,7 +102,7 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
         <StatCard 
           title="G/P Cerrada"
           value={formatCurrency(metrics.realizedPnLEur)}
-          subValue="Realizado"
+          subValue="Realizado acumulado"
           trend={metrics.realizedPnLEur >= 0 ? 'up' : 'down'}
           icon={<Icons.Transactions size={20} />}
         />

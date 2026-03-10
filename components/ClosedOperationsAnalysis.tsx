@@ -80,6 +80,9 @@ const ClosedOperationsAnalysis: React.FC<Props> = ({ transactions }) => {
   const formatByCurrency = (val: number, ccy: string) =>
     new Intl.NumberFormat('es-ES', { style: 'currency', currency: ccy || 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
 
+  const formatProfitFactor = (val: number) => Number.isFinite(val) ? val.toFixed(2) : '∞';
+  const bestWinningTrade = metrics.bestTrade && metrics.bestTrade.netPnLEur > 0 ? metrics.bestTrade : null;
+
   // Helpers for optional origin fields (para no romper si aún no existen)
   const getTradeCurrency = (t: any) => (t.currency && String(t.currency).trim()) ? String(t.currency).trim() : 'EUR';
   const getPnLOrigin = (t: any) => (typeof t.netPnLOrigin === 'number' ? t.netPnLOrigin : 0);
@@ -132,10 +135,10 @@ const ClosedOperationsAnalysis: React.FC<Props> = ({ transactions }) => {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard title="Beneficio Neto (EUR)" value={formatCurrency(metrics.totalProfitEur)} trend={metrics.totalProfitEur >= 0 ? 'up' : 'down'} />
         <StatCard title="Tasa de Acierto" value={(metrics.winRate * 100).toFixed(1) + '%'} subValue={`${metrics.totalTrades} Ops`} trend={metrics.winRate > 0.5 ? 'up' : 'neutral'} />
-        <StatCard title="Factor Beneficio" value={metrics.profitFactor.toFixed(2)} trend={metrics.profitFactor > 1.5 ? 'up' : 'neutral'} />
+        <StatCard title="Factor Beneficio" value={formatProfitFactor(metrics.profitFactor)} trend={metrics.profitFactor > 1.5 ? 'up' : 'neutral'} />
         <StatCard title="Ganancia Media (EUR)" value={formatCurrency(metrics.avgWinEur)} subValue="En ganadoras" trend="up" />
         <StatCard title="Pérdida Media (EUR)" value={formatCurrency(metrics.avgLossEur)} subValue="En perdedoras" trend="down" />
-        <StatCard title="Mejor Op. (EUR)" value={metrics.bestTrade ? formatCurrency(metrics.bestTrade.netPnLEur) : '-'} subValue={metrics.bestTrade?.ticker || '-'} icon={<Icons.Target size={16} />} />
+        <StatCard title="Mejor Op. (EUR)" value={bestWinningTrade ? formatCurrency(bestWinningTrade.netPnLEur) : '-'} subValue={bestWinningTrade?.ticker || '-'} icon={<Icons.Target size={16} />} />
       </div>
 
       {/* CHARTS ROW */}
