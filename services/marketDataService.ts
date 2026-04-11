@@ -424,6 +424,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
 
     const effectiveFeedCurrency =
       (feedCurrency === 'GBp' || feedCurrency === 'GBX') ? 'GBP' : feedCurrency;
+    pos.currencyOrigin = effectiveFeedCurrency || pos.currencyPlatform;
     const fxFeedToEur = getFxRateToEur(effectiveFeedCurrency);
 
     const priceToUseInEur = rawFeedPrice > 0
