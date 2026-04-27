@@ -101,6 +101,19 @@ const isCurrencyExchangeTransaction = (rawTx: any): boolean => {
 
 // --- END HELPERS ---
 
+const normalizeFxRateToEur = (currency: string, rate: number): number => {
+  if (currency === Currency.EUR) return 1;
+  if (!rate || rate <= 0) return 1;
+
+  // USD positions are often entered with EURUSD (e.g. 1.17 USD per EUR).
+  // Internally we need USD -> EUR, so values above 1 are inverted.
+  if (currency === Currency.USD && rate > 1) {
+    return 1 / rate;
+  }
+
+  return rate;
+};
+
 const getCsvUrl = (): string | null => {
   const rawUrl = localStorage.getItem('PRICE_FEED_URL');
   if (!rawUrl) return null;
@@ -235,7 +248,14 @@ export const getFxRateToEur = (currency: string): number => {
   const liveRate = cachedMarketData[pairTicker]?.price;
   
   if (typeof liveRate === 'number' && liveRate > 0) {
-    return liveRate;
+    return normalizeFxRateToEur(currency, liveRate);
+  }
+
+  const inversePairTicker = `EUR${currency}`;
+  const inverseLiveRate = cachedMarketData[inversePairTicker]?.price;
+
+  if (typeof inverseLiveRate === 'number' && inverseLiveRate > 0) {
+    return 1 / inverseLiveRate;
   }
   
   return FALLBACK_FX_RATES[currency] || 1;
@@ -280,7 +300,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const price = toNumber(resolveKey(rawTx, ['price', 'precio', 'coste']));
     const commission = Math.abs(toNumber(resolveKey(rawTx, ['commission', 'comision', 'fees'])));
     const rawFx = resolveKey(rawTx, ['fxRateToEur', 'fx_rate_to_eur', 'tipo_cambio', 'fxRate']);
-    const fxRateToEur = toNumber(rawFx) || 1; // si no hay dato, asumimos 1
+    const fxRateToEurRaw = toNumber(rawFx) || 1; // si no hay dato, asumimos 1
 
     const ticker = (rawTx.ticker || '').toUpperCase();
     const portfolio = rawTx.portfolio || 'Unknown';
@@ -295,7 +315,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     let pos = positionMap.get(key);
 
     // FX efectivo: si la divisa es EUR forzamos 1
-    let effectiveFxRate = fxRateToEur;
+    let effectiveFxRate = normalizeFxRateToEur(currencyPlatform, fxRateToEurRaw);
     if (currencyPlatform === Currency.EUR) {
       effectiveFxRate = 1;
     }
@@ -325,69 +345,115 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
       };
     }
 
+    const addLong = (qty: number, fee: number) => {
+      const currentQty = Math.max(pos.quantity, 0);
+      const totalCostOldEur = currentQty * pos.avgPriceEur;
+      const txCostOrigin = (qty * price) + fee;
+      const txCostEur = txCostOrigin * effectiveFxRate;
+      const newQuantity = currentQty + qty;
+
+      if (newQuantity <= 0.000001) return;
+
+      const newTotalCostOrigin = (currentQty > 0 ? pos.totalCostOrigin : 0) + txCostOrigin;
+      const newTotalCostEur = totalCostOldEur + txCostEur;
+
+      pos.quantity = newQuantity;
+      pos.avgPriceEur = newTotalCostEur / newQuantity;
+      pos.avgPricePlatform = newTotalCostOrigin / newQuantity;
+      pos.totalCostOrigin = newTotalCostOrigin;
+      pos.avgFxRate = pos.totalCostOrigin > 0 ? newTotalCostEur / pos.totalCostOrigin : effectiveFxRate;
+    };
+
+    const addShort = (qty: number, fee: number) => {
+      const currentQty = Math.max(Math.abs(pos.quantity), 0);
+      const proceedsOrigin = (qty * price) - fee;
+      const proceedsEur = proceedsOrigin * effectiveFxRate;
+      const oldProceedsEur = currentQty * pos.avgPriceEur;
+      const newQuantityAbs = currentQty + qty;
+
+      if (newQuantityAbs <= 0.000001) return;
+
+      const newProceedsOrigin = (pos.quantity < 0 ? pos.totalCostOrigin : 0) + proceedsOrigin;
+      const newProceedsEur = oldProceedsEur + proceedsEur;
+
+      pos.quantity = -newQuantityAbs;
+      pos.avgPriceEur = newProceedsEur / newQuantityAbs;
+      pos.avgPricePlatform = newProceedsOrigin / newQuantityAbs;
+      pos.totalCostOrigin = newProceedsOrigin;
+      pos.avgFxRate = pos.totalCostOrigin > 0 ? newProceedsEur / pos.totalCostOrigin : effectiveFxRate;
+    };
+
     if (isBuy) {
       // === COMPRA ===
-      const totalCostOldEur = pos.quantity * pos.avgPriceEur;
+      let remainingQty = quantity;
 
-      const buyCommissionEur = commission * effectiveFxRate;
-      const txCostOrigin = (quantity * price) + commission;               // en divisa de plataforma
-      const txCostEur    = (quantity * price * effectiveFxRate) + buyCommissionEur;
+      if (pos.quantity < -0.000001) {
+        const coverQty = Math.min(remainingQty, Math.abs(pos.quantity));
+        const coverFee = commission * (coverQty / quantity);
+        const coverCostOrigin = (coverQty * price) + coverFee;
+        const coverCostEur = coverCostOrigin * effectiveFxRate;
+        const entryProceedsEur = coverQty * pos.avgPriceEur;
+        const proportion = coverQty / Math.abs(pos.quantity);
 
-      const newQuantity = pos.quantity + quantity;
+        pos.realizedPnLEur += entryProceedsEur - coverCostEur;
+        pos.totalCostOrigin -= (pos.totalCostOrigin * proportion);
+        pos.quantity += coverQty;
+        remainingQty -= coverQty;
+      }
 
-      const newTotalCostOrigin = pos.totalCostOrigin + txCostOrigin;
-      const newTotalCostEur    = totalCostOldEur + txCostEur;
+      if (Math.abs(pos.quantity) <= 0.000001) {
+        pos.quantity = 0;
+        pos.avgPriceEur = 0;
+        pos.avgPricePlatform = 0;
+        pos.totalCostOrigin = 0;
+        pos.avgFxRate = 0;
+      }
 
-      if (newQuantity > 0) {
-        pos.quantity = newQuantity;
-
-        pos.avgPriceEur      = newTotalCostEur / newQuantity;
-        pos.avgPricePlatform = newTotalCostOrigin / newQuantity;
-
-        pos.totalCostOrigin = newTotalCostOrigin;
-
-        if (pos.totalCostOrigin > 0) {
-          pos.avgFxRate = newTotalCostEur / pos.totalCostOrigin;
-        } else {
-          pos.avgFxRate = effectiveFxRate;
-        }
+      if (remainingQty > 0.000001) {
+        addLong(remainingQty, commission * (remainingQty / quantity));
       }
 
       // La caja baja por el coste total de la compra EN LA DIVISA de la operación
       // (la conversión a EUR se hace al final con el FX actual)
       const cashCcy = currencyPlatform as string;
+      const txCostOrigin = (quantity * price) + commission;
       if (!(rawTx as any).nonCash) {
         cashByCurrency[cashCcy] = (cashByCurrency[cashCcy] || 0) - txCostOrigin;
       }
 
     } else {
       // === VENTA ===
-      if (pos.quantity <= 0) {
-        // Venta sin posición previa: seguridad mínima
-        return;
+      let remainingQty = quantity;
+
+      if (pos.quantity > 0.000001) {
+        const sellQty = Math.min(remainingQty, pos.quantity);
+        const sellFee = commission * (sellQty / quantity);
+        const sellValueNetOrigin = (sellQty * price) - sellFee;
+        const sellValueNetEur = sellValueNetOrigin * effectiveFxRate;
+        const costOfSoldEur = sellQty * pos.avgPriceEur;
+        const proportion = sellQty / pos.quantity;
+
+        pos.totalCostOrigin -= (pos.totalCostOrigin * proportion);
+        pos.realizedPnLEur += sellValueNetEur - costOfSoldEur;
+        pos.quantity -= sellQty;
+        remainingQty -= sellQty;
       }
 
-      const sellQty = Math.min(quantity, pos.quantity);
-      if (sellQty <= 0) return;
+      if (Math.abs(pos.quantity) <= 0.000001) {
+        pos.quantity = 0;
+        pos.avgPriceEur = 0;
+        pos.avgPricePlatform = 0;
+        pos.totalCostOrigin = 0;
+        pos.avgFxRate = 0;
+      }
 
-      const sellCommissionEur = commission * effectiveFxRate;
-      const sellValueGrossEur = sellQty * price * effectiveFxRate;
-      const sellValueNetEur   = sellValueGrossEur - sellCommissionEur;
-
-      const costOfSoldEur = sellQty * pos.avgPriceEur;
-
-      // Reducimos coste de origen proporcionalmente al tamaño vendido
-      const proportion = sellQty / pos.quantity;
-      pos.totalCostOrigin -= (pos.totalCostOrigin * proportion);
-
-      const pnl = sellValueNetEur - costOfSoldEur;
-      pos.realizedPnLEur += pnl;
-
-      pos.quantity -= sellQty;
+      if (remainingQty > 0.000001) {
+        addShort(remainingQty, commission * (remainingQty / quantity));
+      }
 
       // La caja sube por el ingreso neto de la venta EN LA DIVISA de la operación
       const cashCcy = currencyPlatform as string;
-      const sellValueNetOrigin = (sellQty * price) - commission;
+      const sellValueNetOrigin = (quantity * price) - commission;
       if (!(rawTx as any).nonCash) {
         cashByCurrency[cashCcy] = (cashByCurrency[cashCcy] || 0) + sellValueNetOrigin;
       }
@@ -411,7 +477,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   };
 
   for (const pos of positionMap.values()) {
-    const isClosed = pos.quantity <= 0.0001;
+    const isClosed = Math.abs(pos.quantity) <= 0.0001;
 
     const marketData = cachedMarketData[pos.ticker];
     const rawFeedPrice = marketData?.price || 0;
@@ -432,9 +498,14 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
       : pos.avgPricePlatform * pos.avgFxRate;
 
     if (!isClosed) {
-      pos.currentValueEur   = pos.quantity * priceToUseInEur;
-      pos.totalCostEur      = pos.quantity * pos.avgPriceEur;
-      pos.unrealizedPnLEur  = pos.currentValueEur - pos.totalCostEur;
+      const quantityAbs = Math.abs(pos.quantity);
+      const direction = pos.quantity >= 0 ? 1 : -1;
+
+      pos.currentValueEur   = direction * quantityAbs * priceToUseInEur;
+      pos.totalCostEur      = quantityAbs * pos.avgPriceEur;
+      pos.unrealizedPnLEur  = pos.quantity >= 0
+        ? pos.currentValueEur - pos.totalCostEur
+        : pos.totalCostEur + pos.currentValueEur;
       pos.unrealizedPnLPct  = pos.totalCostEur !== 0 ? (pos.unrealizedPnLEur / pos.totalCostEur) : 0;
 
       const fxOriginToEur = getFxRateToEur(pos.currencyOrigin);
@@ -443,7 +514,9 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
       pos.currentFxRateToEur = safeFxOrigin;
       pos.currentValueOrigin = pos.currentValueEur / safeFxOrigin;
       pos.currentPriceOrigin = priceToUseInEur / safeFxOrigin;
-      pos.unrealizedPnLOrigin = pos.currentValueOrigin - pos.totalCostOrigin;
+      pos.unrealizedPnLOrigin = pos.quantity >= 0
+        ? pos.currentValueOrigin - pos.totalCostOrigin
+        : pos.totalCostOrigin + pos.currentValueOrigin;
 
       activePositions.push(pos);
 
