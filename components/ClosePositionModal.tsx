@@ -3,6 +3,7 @@ import { AssetType, Currency, Position, PortfolioOwner, TransactionType } from '
 import { db } from '../db';
 import { getFxRateToEur } from '../services/marketDataService';
 import { Icons } from './ui/Icons';
+import { normalizeFxRateToEur, parseFxNumber } from '../utils/fx';
 
 interface ClosePositionModalProps {
   isOpen: boolean;
@@ -89,7 +90,7 @@ const ClosePositionModal: React.FC<ClosePositionModalProps> = ({ isOpen, positio
         price: parseFloat(formData.price),
         commission: parseFloat(formData.commission || '0'),
         currencyPlatform: formData.currencyPlatform,
-        fxRateToEur: parseFloat(formData.fxRateToEur),
+        fxRateToEur: normalizeFxRateToEur(formData.currencyPlatform, parseFxNumber(formData.fxRateToEur)),
       });
       onClose();
     } catch (error) {

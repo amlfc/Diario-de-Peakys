@@ -5,7 +5,9 @@ import { useLiveData } from '../hooks/useLiveData';
 import { Card } from './ui/Card';
 import { Icons } from './ui/Icons';
 import { importTransactionsFromExcel, exportTransactionsToExcel } from '../services/excelService';
+import { getFxRateToEur, refreshMarketData } from '../services/marketDataService';
 import { DEFAULT_RISK_LEVELS, getRiskLevelsConfig, saveRiskLevelsConfig } from '../utils/riskLevels';
+import { isInvalidFxRate, normalizeFxRateToEur } from '../utils/fx';
 
 const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -20,6 +22,7 @@ const SettingsView: React.FC = () => {
   // Price Feed State
   const [priceFeedUrl, setPriceFeedUrl] = useState(localStorage.getItem('PRICE_FEED_URL') || '');
   const [isSavingUrl, setIsSavingUrl] = useState(false);
+  const [isRepairingFx, setIsRepairingFx] = useState(false);
 
   // Risk management levels (Stops / TP-Trailing activation)
   const initialRiskConfig = getRiskLevelsConfig();
@@ -188,6 +191,46 @@ const SettingsView: React.FC = () => {
     }
   };
 
+  const sanitizeTransactionFx = (tx: any) => {
+    const currencyPlatform = (tx.currencyPlatform || tx.currency_platform || tx.divisa || 'EUR').toString().toUpperCase();
+    const rawFx = tx.fxRateToEur ?? tx.fx_rate_to_eur ?? tx.tipo_cambio ?? tx.fxRate;
+    return {
+      ...tx,
+      currencyPlatform,
+      fxRateToEur: normalizeFxRateToEur(currencyPlatform, rawFx),
+    };
+  };
+
+  const handleRepairFxRates = async () => {
+    if (!confirm('Se actualizarán las transacciones en divisa no EUR cuyo tipo de cambio esté vacío o a 0. ¿Continuar?')) return;
+
+    setIsRepairingFx(true);
+    try {
+      await refreshMarketData();
+      const transactions = await db.transactions.toArray();
+      const candidates = transactions.filter((tx: any) => {
+        const currencyPlatform = (tx.currencyPlatform || tx.currency_platform || tx.divisa || 'EUR').toString().toUpperCase();
+        const rawFx = tx.fxRateToEur ?? tx.fx_rate_to_eur ?? tx.tipo_cambio ?? tx.fxRate;
+        return tx.id && isInvalidFxRate(currencyPlatform, rawFx);
+      });
+
+      for (const tx of candidates as any[]) {
+        const currencyPlatform = (tx.currencyPlatform || tx.currency_platform || tx.divisa || 'EUR').toString().toUpperCase();
+        await db.transactions.update(tx.id, {
+          currencyPlatform,
+          fxRateToEur: getFxRateToEur(currencyPlatform),
+        } as any);
+      }
+
+      alert(`Reparación completada. Transacciones actualizadas: ${candidates.length}.`);
+    } catch (error) {
+      console.error('Error repairing FX rates:', error);
+      alert('No se pudieron reparar los tipos de cambio. Revisa la conexión API.');
+    } finally {
+      setIsRepairingFx(false);
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -259,7 +302,7 @@ const SettingsView: React.FC = () => {
       await db.allocationTargets.clear();
       await db.positionNotes.clear();
 
-      await db.transactions.bulkAdd(Array.isArray(parsed.transactions) ? parsed.transactions : []);
+      await db.transactions.bulkAdd(Array.isArray(parsed.transactions) ? parsed.transactions.map(sanitizeTransactionFx) : []);
       await db.liquidity.bulkAdd(Array.isArray(parsed.liquidity) ? parsed.liquidity : []);
       await db.portfolios.bulkAdd(Array.isArray(parsed.portfolios) ? parsed.portfolios : []);
       await db.assetTypes.bulkAdd(Array.isArray(parsed.assetTypes) ? parsed.assetTypes : []);
@@ -394,6 +437,21 @@ const SettingsView: React.FC = () => {
                  </button>
               </div>
            </div>
+        </Card>
+
+        <Card title="Reparación de Tipos de Cambio">
+          <div className="space-y-4">
+            <p className="text-xs text-slate-400">
+              Corrige operaciones guardadas en divisas como USD cuando el tipo de cambio a EUR quedó vacío o a 0.
+            </p>
+            <button
+              onClick={handleRepairFxRates}
+              disabled={isRepairingFx}
+              className="w-full sm:w-auto bg-amber-600 hover:bg-amber-500 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isRepairingFx ? 'Reparando...' : 'Reparar FX a 0'}
+            </button>
+          </div>
         </Card>
 
         <Card title="Niveles de Stops y Take Profit / Trailing">

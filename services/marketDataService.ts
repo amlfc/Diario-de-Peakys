@@ -8,6 +8,7 @@ import {
   DashboardMetrics,
   LiquidityEvent
 } from '../types';
+import { FALLBACK_FX_RATES, normalizeFxRateToEur } from '../utils/fx';
 
 // Simulates GOOGLEFINANCE calls (Fallback)
 const MOCK_PRICES: Record<string, number> = {
@@ -19,18 +20,6 @@ const MOCK_PRICES: Record<string, number> = {
   'AMZN': 130.00,
   'NVDA': 450.00,
   'BTC': 35000.00
-};
-
-// STATIC FALLBACK RATES 
-const FALLBACK_FX_RATES: Record<string, number> = {
-  [Currency.USD]: 0.94, 
-  [Currency.EUR]: 1.0,
-  [Currency.GBP]: 1.15,
-  [Currency.CHF]: 1.06,
-  [Currency.CAD]: 0.68,
-  [Currency.JPY]: 0.006,
-  [Currency.AUD]: 0.60,
-  [Currency.HKD]: 0.12,
 };
 
 // Cache for fetched data: Price AND Currency
@@ -100,19 +89,6 @@ const isCurrencyExchangeTransaction = (rawTx: any): boolean => {
 };
 
 // --- END HELPERS ---
-
-const normalizeFxRateToEur = (currency: string, rate: number): number => {
-  if (currency === Currency.EUR) return 1;
-  if (!rate || rate <= 0) return 1;
-
-  // USD positions are often entered with EURUSD (e.g. 1.17 USD per EUR).
-  // Internally we need USD -> EUR, so values above 1 are inverted.
-  if (currency === Currency.USD && rate > 1) {
-    return 1 / rate;
-  }
-
-  return rate;
-};
 
 const getCsvUrl = (): string | null => {
   const rawUrl = localStorage.getItem('PRICE_FEED_URL');
@@ -261,6 +237,10 @@ export const getFxRateToEur = (currency: string): number => {
   return FALLBACK_FX_RATES[currency] || 1;
 };
 
+export const refreshMarketData = async (): Promise<void> => {
+  await fetchPricesFromSheet();
+};
+
 export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioOwner | 'ALL') => {
   // 1. Cargamos precios y divisas de la hoja
   await fetchPricesFromSheet();
@@ -300,7 +280,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const price = toNumber(resolveKey(rawTx, ['price', 'precio', 'coste']));
     const commission = Math.abs(toNumber(resolveKey(rawTx, ['commission', 'comision', 'fees'])));
     const rawFx = resolveKey(rawTx, ['fxRateToEur', 'fx_rate_to_eur', 'tipo_cambio', 'fxRate']);
-    const fxRateToEurRaw = toNumber(rawFx) || 1; // si no hay dato, asumimos 1
+    const fxRateToEurRaw = toNumber(rawFx);
 
     const ticker = (rawTx.ticker || '').toUpperCase();
     const portfolio = rawTx.portfolio || 'Unknown';

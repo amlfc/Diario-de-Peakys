@@ -4,6 +4,7 @@ import { Transaction, TransactionType } from '../types';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { writeFile, utils } from 'xlsx';
+import { normalizeFxRateToEur } from '../utils/fx';
 
 export interface ClosedTrade {
   id: string;
@@ -107,7 +108,7 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
   const lotsByKey = new Map<string, Lot[]>();
   const closedTrades: ClosedTrade[] = [];
 
-  const fxOf = (tx: Transaction) => (tx.currencyPlatform === 'EUR' ? 1 : (toNumber(tx.fxRateToEur) || 1));
+  const fxOf = (tx: Transaction) => normalizeFxRateToEur(tx.currencyPlatform, tx.fxRateToEur);
 
   sortedTxs.forEach((rawTx, index) => {
     // Movimientos internos (cambios de divisa, traspasos no-cash, etc.)
@@ -118,7 +119,7 @@ export const calculateClosedTrades = (transactions: Transaction[]): ClosedTrade[
       quantity: toNumber(rawTx.quantity),
       price: toNumber(rawTx.price),
       commission: Math.abs(toNumber(rawTx.commission)),
-      fxRateToEur: toNumber(rawTx.fxRateToEur) || 1
+      fxRateToEur: normalizeFxRateToEur(rawTx.currencyPlatform, rawTx.fxRateToEur)
     };
 
     if (!tx.ticker || !tx.portfolio) return;

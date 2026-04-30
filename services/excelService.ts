@@ -2,6 +2,7 @@
 import { read, utils, writeFile } from 'xlsx';
 import { db } from '../db';
 import { Transaction, TransactionType, Currency, DefaultAssetTypes, LiquidityEvent } from '../types';
+import { normalizeFxRateToEur } from '../utils/fx';
 
 // --- HELPER FUNCTIONS ---
 
@@ -202,6 +203,7 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
 
                 const quantity = Math.abs(rawQty);
                 const price = Math.abs(rawPrice);
+                const currencyPlatform = (getCell(row, colMap, ['Divisa', 'Currency', 'Moneda']) || 'EUR').toString().toUpperCase().trim() as Currency;
                 
                 if (quantity > 0) {
                     newPortfolios.add(portfolio);
@@ -215,8 +217,8 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
                         quantity,
                         price,
                         commission: Math.abs(commRaw),
-                        currencyPlatform: (getCell(row, colMap, ['Divisa', 'Currency', 'Moneda']) || 'EUR').toString().toUpperCase().trim() as Currency,
-                        fxRateToEur: fxRaw > 0 ? fxRaw : 1,
+                        currencyPlatform,
+                        fxRateToEur: normalizeFxRateToEur(currencyPlatform, fxRaw),
                         excludeFromMetrics: ['1', 'si', 'sí', 'true', 'x', 'yes', 'y'].includes(excludeRaw),
                         notes: getCell(row, colMap, ['Notas', 'Notes', 'Comentarios'])?.toString() || ''
                     });

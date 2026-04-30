@@ -5,6 +5,7 @@ import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { AssetType, Currency, PortfolioOwner, TransactionType, DefaultAssetTypes, Transaction } from '../types';
 import { Icons } from './ui/Icons';
 import { getFxRateToEur } from '../services/marketDataService';
+import { normalizeFxRateToEur, parseFxNumber } from '../utils/fx';
 
 interface TransactionFormProps {
   onSuccess: () => void;
@@ -84,6 +85,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
     const tickerUpper = (formData.ticker || "").toUpperCase().trim();
     const assetNameSafe = (formData.assetName || "").trim() || tickerUpper;
 
+    const currencyPlatform = formData.currencyPlatform as Currency;
     const payload = {
       date: formData.date,
       portfolio: formData.portfolio as PortfolioOwner,
@@ -94,8 +96,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
       quantity: parseFloat(formData.quantity),
       price: parseFloat(formData.price),
       commission: parseFloat(formData.commission),
-      currencyPlatform: formData.currencyPlatform as Currency,
-      fxRateToEur: parseFloat(formData.fxRateToEur),
+      currencyPlatform,
+      fxRateToEur: normalizeFxRateToEur(currencyPlatform, parseFxNumber(formData.fxRateToEur)),
       excludeFromMetrics: !!formData.excludeFromMetrics,
     };
 
