@@ -189,8 +189,9 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
             ) : (
               sortedPositions.map((pos) => {
                 const isProfitEur = pos.unrealizedPnLEur >= 0;
-                const isProfitOrigin = pos.unrealizedPnLOrigin >= 0;
                 const isDifferentCurrency = pos.currencyOrigin !== Currency.EUR;
+                const hasComparableOriginCost = isDifferentCurrency && pos.currencyOrigin === pos.currencyPlatform;
+                const isProfitOrigin = pos.unrealizedPnLOrigin >= 0;
                 const positionKey = computePositionKey(pos.portfolio, pos.ticker);
                 const noteText = notesByKey.get(positionKey)?.note || '';
                 const hasNote = noteText.trim().length > 0;
@@ -241,7 +242,7 @@ const PositionsTable: React.FC<PositionsTableProps> = ({ positions }) => {
                        {isDifferentCurrency ? formatCurrency(pos.currentValueOrigin, pos.currencyOrigin) : '-'}
                     </td>
                     <td className={`px-4 py-4 text-right bg-slate-800/30 font-medium ${isProfitOrigin ? 'text-emerald-400' : 'text-rose-400'}`}>
-                       {isDifferentCurrency ? formatCurrency(pos.unrealizedPnLOrigin, pos.currencyOrigin) : '-'}
+                       {hasComparableOriginCost ? formatCurrency(pos.unrealizedPnLOrigin, pos.currencyOrigin) : '-'}
                     </td>
                     <td className="px-4 py-4 text-right border-l border-slate-700 text-white font-bold">
                       {formatCurrency(pos.currentValueEur, Currency.EUR)}
