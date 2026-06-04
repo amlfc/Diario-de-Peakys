@@ -5,7 +5,7 @@ import { useLiveData } from '../hooks/useLiveData'; // CAMBIO
 import { AssetType, Currency, PortfolioOwner, TransactionType, DefaultAssetTypes, Transaction } from '../types';
 import { Icons } from './ui/Icons';
 import { getFxRateToEur } from '../services/marketDataService';
-import { normalizeFxRateToEur, parseFxNumber } from '../utils/fx';
+import { normalizeStoredFxRateToEur, parseFxNumber } from '../utils/fx';
 
 interface TransactionFormProps {
   onSuccess: () => void;
@@ -28,7 +28,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
     price: '',
     commission: '0',
     currencyPlatform: Currency.EUR,
-    fxRateToEur: '1',
+    fxRateToEur: '0',
     excludeFromMetrics: false,
   });
 
@@ -45,7 +45,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
         price: initialData.price.toString(),
         commission: initialData.commission.toString(),
         currencyPlatform: initialData.currencyPlatform,
-        fxRateToEur: initialData.fxRateToEur.toString(),
+        fxRateToEur: normalizeStoredFxRateToEur(initialData.currencyPlatform, initialData.fxRateToEur).toString(),
         excludeFromMetrics: !!initialData.excludeFromMetrics,
       });
     }
@@ -97,7 +97,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
       price: parseFloat(formData.price),
       commission: parseFloat(formData.commission),
       currencyPlatform,
-      fxRateToEur: normalizeFxRateToEur(currencyPlatform, parseFxNumber(formData.fxRateToEur)),
+      fxRateToEur: normalizeStoredFxRateToEur(currencyPlatform, parseFxNumber(formData.fxRateToEur)),
       excludeFromMetrics: !!formData.excludeFromMetrics,
     };
 
@@ -118,7 +118,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess, onCancel, 
     const { name, value, type, checked } = e.target as HTMLInputElement;
 
     if (name === 'currencyPlatform') {
-      const newRate = getFxRateToEur(value);
+      const newRate = value === Currency.EUR ? 0 : getFxRateToEur(value);
       setFormData({ 
         ...formData, 
         currencyPlatform: value as Currency, 

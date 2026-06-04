@@ -2,7 +2,8 @@
 import { read, utils, writeFile } from 'xlsx';
 import { db } from '../db';
 import { Transaction, TransactionType, Currency, DefaultAssetTypes, LiquidityEvent } from '../types';
-import { normalizeFxRateToEur } from '../utils/fx';
+import { getLiveFxRateToEur, refreshMarketData } from './marketDataService';
+import { normalizeStoredFxRateToEur } from '../utils/fx';
 
 // --- HELPER FUNCTIONS ---
 
@@ -124,6 +125,7 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
       try {
         const data = e.target?.result;
         const workbook = read(data, { type: 'binary', cellDates: true });
+        await refreshMarketData();
 
         let totalTransactions = 0;
         let totalLiquidity = 0;
@@ -204,6 +206,12 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
                 const quantity = Math.abs(rawQty);
                 const price = Math.abs(rawPrice);
                 const currencyPlatform = (getCell(row, colMap, ['Divisa', 'Currency', 'Moneda']) || 'EUR').toString().toUpperCase().trim() as Currency;
+                const liveFxRate = getLiveFxRateToEur(currencyPlatform);
+                const fxRateToEur = currencyPlatform === Currency.EUR
+                  ? 0
+                  : fxRaw > 0
+                    ? normalizeStoredFxRateToEur(currencyPlatform, fxRaw)
+                    : liveFxRate ?? normalizeStoredFxRateToEur(currencyPlatform, fxRaw);
                 
                 if (quantity > 0) {
                     newPortfolios.add(portfolio);
@@ -218,7 +226,7 @@ export const importTransactionsFromExcel = async (file: File): Promise<{ success
                         price,
                         commission: Math.abs(commRaw),
                         currencyPlatform,
-                        fxRateToEur: normalizeFxRateToEur(currencyPlatform, fxRaw),
+                        fxRateToEur,
                         excludeFromMetrics: ['1', 'si', 'sí', 'true', 'x', 'yes', 'y'].includes(excludeRaw),
                         notes: getCell(row, colMap, ['Notas', 'Notes', 'Comentarios'])?.toString() || ''
                     });

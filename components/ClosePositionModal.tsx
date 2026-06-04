@@ -3,7 +3,7 @@ import { AssetType, Currency, Position, PortfolioOwner, TransactionType } from '
 import { db } from '../db';
 import { getFxRateToEur } from '../services/marketDataService';
 import { Icons } from './ui/Icons';
-import { normalizeFxRateToEur, parseFxNumber } from '../utils/fx';
+import { normalizeStoredFxRateToEur, parseFxNumber } from '../utils/fx';
 
 interface ClosePositionModalProps {
   isOpen: boolean;
@@ -24,13 +24,15 @@ const ClosePositionModal: React.FC<ClosePositionModalProps> = ({ isOpen, positio
     price: '',
     commission: '0',
     currencyPlatform: Currency.EUR,
-    fxRateToEur: '1',
+    fxRateToEur: '0',
   });
 
   useEffect(() => {
     if (!isOpen || !position) return;
 
-    const defaultFx = position.currentFxRateToEur || getFxRateToEur(position.currencyPlatform);
+    const defaultFx = position.currencyPlatform === Currency.EUR
+      ? 0
+      : position.currentFxRateToEur || getFxRateToEur(position.currencyPlatform);
 
     setFormData({
       date: new Date().toISOString().split('T')[0],
@@ -62,7 +64,7 @@ const ClosePositionModal: React.FC<ClosePositionModalProps> = ({ isOpen, positio
     const { name, value } = e.target;
 
     if (name === 'currencyPlatform') {
-      const nextRate = getFxRateToEur(value);
+      const nextRate = value === Currency.EUR ? 0 : getFxRateToEur(value);
       setFormData((prev) => ({
         ...prev,
         currencyPlatform: value as Currency,
@@ -90,7 +92,7 @@ const ClosePositionModal: React.FC<ClosePositionModalProps> = ({ isOpen, positio
         price: parseFloat(formData.price),
         commission: parseFloat(formData.commission || '0'),
         currencyPlatform: formData.currencyPlatform,
-        fxRateToEur: normalizeFxRateToEur(formData.currencyPlatform, parseFxNumber(formData.fxRateToEur)),
+        fxRateToEur: normalizeStoredFxRateToEur(formData.currencyPlatform, parseFxNumber(formData.fxRateToEur)),
       });
       onClose();
     } catch (error) {

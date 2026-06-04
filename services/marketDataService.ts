@@ -1,4 +1,5 @@
 import { db } from '../db';
+import { api } from './apiService';
 import { 
   Transaction, 
   Position, 
@@ -8,7 +9,13 @@ import {
   DashboardMetrics,
   LiquidityEvent
 } from '../types';
-import { FALLBACK_FX_RATES, normalizeFxRateToEur } from '../utils/fx';
+import {
+  FALLBACK_FX_RATES,
+  isInvalidFxRate,
+  normalizeCurrencyCode,
+  normalizeFxRateToEur,
+  parseFxNumber
+} from '../utils/fx';
 
 // Simulates GOOGLEFINANCE calls (Fallback)
 const MOCK_PRICES: Record<string, number> = {
@@ -217,28 +224,115 @@ const fetchPricesFromSheet = async (): Promise<Record<string, MarketData>> => {
   }
 };
 
-export const getFxRateToEur = (currency: string): number => {
-  if (currency === Currency.EUR) return 1;
-  const pairTicker = `${currency}EUR`; 
-  
-  const liveRate = cachedMarketData[pairTicker]?.price;
-  
-  if (typeof liveRate === 'number' && liveRate > 0) {
-    return normalizeFxRateToEur(currency, liveRate);
+const getCachedFxPairPrice = (base: string, quote: string): number | undefined => {
+  const pairVariants = [
+    `${base}${quote}`,
+    `${base}/${quote}`,
+    `${base}.${quote}`,
+    `${base}-${quote}`,
+    `${base}_${quote}`,
+    `${base}${quote}=X`,
+  ];
+  const prefixes = ['', 'CURRENCY:', 'FX:'];
+
+  for (const prefix of prefixes) {
+    for (const pair of pairVariants) {
+      const price = cachedMarketData[`${prefix}${pair}`]?.price;
+      if (typeof price === 'number' && price > 0) return price;
+    }
   }
 
-  const inversePairTicker = `EUR${currency}`;
-  const inverseLiveRate = cachedMarketData[inversePairTicker]?.price;
+  return undefined;
+};
 
-  if (typeof inverseLiveRate === 'number' && inverseLiveRate > 0) {
+export const getLiveFxRateToEur = (currency: string): number | undefined => {
+  const normalizedCurrency = normalizeCurrencyCode(currency);
+  if (normalizedCurrency === Currency.EUR) return 1;
+
+  const liveRate = getCachedFxPairPrice(normalizedCurrency, Currency.EUR);
+  if (liveRate !== undefined) {
+    return liveRate;
+  }
+
+  const inverseLiveRate = getCachedFxPairPrice(Currency.EUR, normalizedCurrency);
+  if (inverseLiveRate !== undefined) {
     return 1 / inverseLiveRate;
   }
-  
-  return FALLBACK_FX_RATES[currency] || 1;
+
+  return undefined;
+};
+
+export const getFxRateToEur = (currency: string): number => {
+  const normalizedCurrency = normalizeCurrencyCode(currency);
+  if (normalizedCurrency === Currency.EUR) return 1;
+
+  return getLiveFxRateToEur(normalizedCurrency)
+    ?? FALLBACK_FX_RATES[normalizedCurrency]
+    ?? 1;
 };
 
 export const refreshMarketData = async (): Promise<void> => {
   await fetchPricesFromSheet();
+};
+
+let transactionFxRepairPromise: Promise<number> | null = null;
+
+const repairLoadedTransactionFxRates = async (transactions: any[]): Promise<number> => {
+  let updatedCount = 0;
+
+  for (const tx of transactions) {
+    if (!tx?.id) continue;
+
+    const currencyPlatform = normalizeCurrencyCode(
+      resolveKey(tx, ['currencyPlatform', 'currency_platform', 'divisa', 'currency']) || Currency.EUR
+    );
+    const rawFx = resolveKey(tx, ['fxRateToEur', 'fx_rate_to_eur', 'tipo_cambio', 'fxRate']);
+    let nextFxRate: number | undefined;
+
+    if (currencyPlatform === Currency.EUR) {
+      const hasStoredFx = tx.fxRateToEur !== undefined && tx.fxRateToEur !== null && tx.fxRateToEur !== '';
+      const isCanonicalCurrency = tx.currencyPlatform === Currency.EUR;
+      if (!hasStoredFx || parseFxNumber(tx.fxRateToEur) !== 0 || !isCanonicalCurrency) {
+        nextFxRate = 0;
+      }
+    } else if (isInvalidFxRate(currencyPlatform, rawFx)) {
+      // Historical transaction FX must come from the linked sheet, not a static fallback.
+      nextFxRate = getLiveFxRateToEur(currencyPlatform);
+    }
+
+    if (nextFxRate === undefined) continue;
+
+    const changes = {
+      currencyPlatform: currencyPlatform as Currency,
+      fxRateToEur: nextFxRate,
+    };
+
+    await api.update('pky_transactions', tx.id, changes);
+    Object.assign(tx, changes);
+    updatedCount += 1;
+  }
+
+  if (updatedCount > 0) {
+    db.notify();
+  }
+
+  return updatedCount;
+};
+
+export const repairTransactionFxRates = async (transactions?: any[]): Promise<number> => {
+  if (transactionFxRepairPromise) return transactionFxRepairPromise;
+
+  transactionFxRepairPromise = (async () => {
+    await fetchPricesFromSheet();
+    const sourceTransactions = transactions ?? await db.transactions.toArray();
+    return repairLoadedTransactionFxRates(sourceTransactions);
+  })();
+
+  try {
+    return await transactionFxRepairPromise;
+  } finally {
+    transactionFxRepairPromise = null;
+  }
 };
 
 export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioOwner | 'ALL') => {
@@ -255,6 +349,19 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
   } else {
     transactions = await db.transactions.where('portfolio').equals(selectedPortfolio).toArray();
     liquidity = await db.liquidity.where('portfolio').equals(selectedPortfolio).toArray();
+  }
+
+  // IBKR and other external integrations may create rows with FX at 0.
+  // Repair them as soon as the polling calculation sees them.
+  try {
+    const repairedCount = await repairTransactionFxRates(transactions);
+    if (repairedCount > 0) {
+      transactions = selectedPortfolio === 'ALL'
+        ? await db.transactions.toArray()
+        : await db.transactions.where('portfolio').equals(selectedPortfolio).toArray();
+    }
+  } catch (error) {
+    console.error('Error repairing transaction FX rates:', error);
   }
 
   const positionMap = new Map<string, Position>();
@@ -286,7 +393,7 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     const portfolio = rawTx.portfolio || 'Unknown';
     const assetName = resolveKey(rawTx, ['assetName', 'asset_name', 'nombre']) || ticker;
     const assetType = resolveKey(rawTx, ['assetType', 'asset_type', 'tipo_activo']) || 'Sin Clasificar';
-    const currencyPlatform = resolveKey(rawTx, ['currencyPlatform', 'currency_platform', 'divisa']) || Currency.EUR;
+    const currencyPlatform = resolveKey(rawTx, ['currencyPlatform', 'currency_platform', 'divisa', 'currency']) || Currency.EUR;
     const typeStr = resolveKey(rawTx, ['type', 'tipo', 'operacion']);
 
     const isBuy = isBuyOperation(typeStr);

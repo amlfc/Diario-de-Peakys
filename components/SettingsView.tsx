@@ -5,9 +5,9 @@ import { useLiveData } from '../hooks/useLiveData';
 import { Card } from './ui/Card';
 import { Icons } from './ui/Icons';
 import { importTransactionsFromExcel, exportTransactionsToExcel } from '../services/excelService';
-import { getFxRateToEur, refreshMarketData } from '../services/marketDataService';
+import { repairTransactionFxRates } from '../services/marketDataService';
 import { DEFAULT_RISK_LEVELS, getRiskLevelsConfig, saveRiskLevelsConfig } from '../utils/riskLevels';
-import { isInvalidFxRate, normalizeFxRateToEur } from '../utils/fx';
+import { normalizeStoredFxRateToEur } from '../utils/fx';
 
 const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -218,37 +218,22 @@ const SettingsView: React.FC = () => {
   };
 
   const sanitizeTransactionFx = (tx: any) => {
-    const currencyPlatform = (tx.currencyPlatform || tx.currency_platform || tx.divisa || 'EUR').toString().toUpperCase();
+    const currencyPlatform = (tx.currencyPlatform || tx.currency_platform || tx.divisa || tx.currency || 'EUR').toString().toUpperCase();
     const rawFx = tx.fxRateToEur ?? tx.fx_rate_to_eur ?? tx.tipo_cambio ?? tx.fxRate;
     return {
       ...tx,
       currencyPlatform,
-      fxRateToEur: normalizeFxRateToEur(currencyPlatform, rawFx),
+      fxRateToEur: normalizeStoredFxRateToEur(currencyPlatform, rawFx),
     };
   };
 
   const handleRepairFxRates = async () => {
-    if (!confirm('Se actualizarán las transacciones en divisa no EUR cuyo tipo de cambio esté vacío o a 0. ¿Continuar?')) return;
+    if (!confirm('Se pondrá a 0 el tipo de cambio de las transacciones EUR y se completarán desde Google Sheets las divisas cuyo tipo esté vacío o a 0. ¿Continuar?')) return;
 
     setIsRepairingFx(true);
     try {
-      await refreshMarketData();
-      const transactions = await db.transactions.toArray();
-      const candidates = transactions.filter((tx: any) => {
-        const currencyPlatform = (tx.currencyPlatform || tx.currency_platform || tx.divisa || 'EUR').toString().toUpperCase();
-        const rawFx = tx.fxRateToEur ?? tx.fx_rate_to_eur ?? tx.tipo_cambio ?? tx.fxRate;
-        return tx.id && isInvalidFxRate(currencyPlatform, rawFx);
-      });
-
-      for (const tx of candidates as any[]) {
-        const currencyPlatform = (tx.currencyPlatform || tx.currency_platform || tx.divisa || 'EUR').toString().toUpperCase();
-        await db.transactions.update(tx.id, {
-          currencyPlatform,
-          fxRateToEur: getFxRateToEur(currencyPlatform),
-        } as any);
-      }
-
-      alert(`Reparación completada. Transacciones actualizadas: ${candidates.length}.`);
+      const updatedCount = await repairTransactionFxRates();
+      alert(`Reparación completada. Transacciones actualizadas: ${updatedCount}.`);
     } catch (error) {
       console.error('Error repairing FX rates:', error);
       alert('No se pudieron reparar los tipos de cambio. Revisa la conexión API.');
@@ -493,14 +478,14 @@ const SettingsView: React.FC = () => {
         <Card title="Reparación de Tipos de Cambio">
           <div className="space-y-4">
             <p className="text-xs text-slate-400">
-              Corrige operaciones guardadas en divisas como USD cuando el tipo de cambio a EUR quedó vacío o a 0.
+              Mantiene las operaciones EUR con tipo de cambio 0 y completa desde Google Sheets las divisas como USD cuando quedaron vacías o a 0.
             </p>
             <button
               onClick={handleRepairFxRates}
               disabled={isRepairingFx}
               className="w-full sm:w-auto bg-amber-600 hover:bg-amber-500 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isRepairingFx ? 'Reparando...' : 'Reparar FX a 0'}
+              {isRepairingFx ? 'Reparando...' : 'Reparar tipos de cambio'}
             </button>
           </div>
         </Card>

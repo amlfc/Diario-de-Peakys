@@ -83,18 +83,18 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
     return all.filter((t) => t.portfolio === selectedPortfolio);
   }, [selectedPortfolio]);
 
-  // En esta pantalla queremos reflejar "Invertido" (coste) y no "Valor actual".
-  // Por tanto, usamos totalCostEur (cost basis) para agregaciones por tipo.
-  const investedValuesMap = new Map<string, number>();
-  let totalInvested = 0;
+  // La diversificacion se calcula sobre el patrimonio actual de la cartera visible.
+  // Usamos valor de mercado para que activos + liquidez cuadren con ese patrimonio.
+  const currentValuesMap = new Map<string, number>();
+  let totalCurrentValue = 0;
 
   positions.forEach((pos) => {
-    const investedVal = investedValuesMap.get(pos.assetType) || 0;
-    investedValuesMap.set(pos.assetType, investedVal + pos.totalCostEur);
-    totalInvested += pos.totalCostEur;
+    const currentVal = currentValuesMap.get(pos.assetType) || 0;
+    currentValuesMap.set(pos.assetType, currentVal + pos.currentValueEur);
+    totalCurrentValue += pos.currentValueEur;
   });
 
-  const pieData = Array.from(investedValuesMap.entries())
+  const pieData = Array.from(currentValuesMap.entries())
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value);
 
@@ -109,7 +109,8 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
       signDisplay: 'always',
     }).format(val);
 
-  const referenceCapital = metrics.totalLiquidityAddedEur + metrics.realizedPnLEur;
+  const referenceCapital = metrics.totalValueEur + metrics.availableCashEur;
+  const unallocatedLiquidity = metrics.availableCashEur;
 
   const handleTargetChange = async (assetType: string, newVal: string) => {
     if (selectedPortfolio === 'ALL') return;
@@ -162,13 +163,13 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
     });
   };
 
-  const uniqueAssetTypes = Array.from(new Set([...allAssetTypes.map((a) => a.name), ...Array.from(investedValuesMap.keys())])).sort();
+  const uniqueAssetTypes = Array.from(new Set([...allAssetTypes.map((a) => a.name), ...Array.from(currentValuesMap.keys())])).sort();
 
   return (
     <Card title={`Diversificación: ${selectedPortfolio === 'ALL' ? 'Global' : selectedPortfolio}`} className="h-full min-h-[500px]">
       <div className="flex flex-col xl:flex-row h-full gap-8">
         <div className="w-full xl:w-1/3 h-64 xl:h-auto flex flex-col items-center justify-center relative">
-          {totalInvested > 0 ? (
+          {totalCurrentValue > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
@@ -190,7 +191,7 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
           <div className="absolute top-0 right-0 text-xs text-right text-slate-500 bg-slate-900/50 p-2 rounded">
             <div className="font-medium text-slate-300">Capital Referencia</div>
             <div>{formatCurrency(referenceCapital)}</div>
-            <div className="text-[10px] mt-1">(Aportado + G/P Realizada)</div>
+            <div className="text-[10px] mt-1">(Patrimonio Total)</div>
           </div>
         </div>
 
@@ -205,8 +206,8 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
             <thead className="text-xs text-slate-400 uppercase bg-slate-900/50 border-b border-slate-700">
               <tr>
                 <th className="px-4 py-3">Tipo Activo</th>
-                <th className="px-4 py-3 text-right">Invertido €</th>
-                <th className="px-4 py-3 text-right">Invertido %</th>
+                <th className="px-4 py-3 text-right">Valor actual €</th>
+                <th className="px-4 py-3 text-right">Valor actual %</th>
                 <th className="px-4 py-3 text-center w-24">Obj %</th>
                 <th className="px-4 py-3 text-right">Obj €</th>
                 <th className="px-4 py-3 text-right">Δ €</th>
@@ -216,8 +217,8 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
 
             <tbody className="divide-y divide-slate-700">
               {uniqueAssetTypes.map((type) => {
-                const investedVal = investedValuesMap.get(type) || 0;
-                const investedPct = referenceCapital > 0 ? (investedVal / referenceCapital) * 100 : 0;
+                const currentVal = currentValuesMap.get(type) || 0;
+                const currentPct = referenceCapital > 0 ? (currentVal / referenceCapital) * 100 : 0;
 
                 let targetPct = 0;
                 let hasTarget = false;
@@ -229,7 +230,7 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
                 }
 
                 const targetVal = referenceCapital * (targetPct / 100);
-                const deltaVal = hasTarget ? targetVal - investedVal : 0;
+                const deltaVal = hasTarget ? targetVal - currentVal : 0;
 
                 const deltaClass =
                   selectedPortfolio === 'ALL' || !hasTarget
@@ -245,7 +246,7 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
 
                 if (hasTarget) {
                   if (targetVal === 0) {
-                    if (investedVal > 0) {
+                    if (currentVal > 0) {
                       statusColor = 'text-rose-400 font-bold';
                       statusText = 'Vender';
                     } else {
@@ -253,7 +254,7 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
                       statusText = 'OK';
                     }
                   } else {
-                    const ratio = investedVal / targetVal;
+                    const ratio = currentVal / targetVal;
                     if (ratio < 0.9) {
                       statusColor = 'text-blue-400 font-bold';
                       statusText = 'Comprar';
@@ -299,8 +300,8 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
                       </div>
                     </td>
 
-                    <td className="px-4 py-3 text-right text-slate-300">{formatCurrency(investedVal)}</td>
-                    <td className="px-4 py-3 text-right text-slate-400">{investedPct.toFixed(1)}%</td>
+                    <td className="px-4 py-3 text-right text-slate-300">{formatCurrency(currentVal)}</td>
+                    <td className="px-4 py-3 text-right text-slate-400">{currentPct.toFixed(1)}%</td>
 
                     <td className="px-4 py-3 text-center">
                       {selectedPortfolio !== 'ALL' ? (
@@ -323,9 +324,9 @@ const Diversification: React.FC<DiversificationProps> = ({ positions, metrics, s
 
               <tr className="bg-slate-800/50 border-t border-slate-600 font-medium">
                 <td className="px-4 py-3 text-slate-200">Liquidez / Sin Asignar</td>
-                <td className="px-4 py-3 text-right text-white">{formatCurrency(referenceCapital - totalInvested)}</td>
+                <td className="px-4 py-3 text-right text-white">{formatCurrency(unallocatedLiquidity)}</td>
                 <td className="px-4 py-3 text-right text-slate-400">
-                  {(referenceCapital > 0 ? ((referenceCapital - totalInvested) / referenceCapital) * 100 : 0).toFixed(1)}%
+                  {(referenceCapital > 0 ? (unallocatedLiquidity / referenceCapital) * 100 : 0).toFixed(1)}%
                 </td>
                 <td colSpan={4}></td>
               </tr>
