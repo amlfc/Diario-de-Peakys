@@ -157,6 +157,9 @@ export interface DashboardMetrics {
   totalLiquidityAddedEur: number;
   realizedPnLEur: number;
   totalReturnPct: number; // The complex ROI formula
+  timeWeightedReturnYtdPct: number | null;
+  lastCompleteMonthReturnPct: number | null;
+  historicalReturnCoverage: 'loading' | 'complete' | 'incomplete' | 'not_configured';
   projectedCloseEur: number; // If everything was sold today
 }
 

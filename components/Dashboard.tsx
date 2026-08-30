@@ -21,6 +21,19 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
 
   const isProfitable = metrics.totalReturnPct >= 0;
   const totalEquity = metrics.totalValueEur + metrics.availableCashEur;
+  const hasHistoricalReturn = metrics.historicalReturnCoverage === 'complete'
+    && metrics.timeWeightedReturnYtdPct !== null
+    && metrics.lastCompleteMonthReturnPct !== null;
+  const historicalReturnTrend = !hasHistoricalReturn
+    ? 'neutral'
+    : metrics.timeWeightedReturnYtdPct! >= 0 ? 'up' : 'down';
+  const historicalReturnSubtitle = metrics.historicalReturnCoverage === 'loading'
+    ? 'Calculando histórico...'
+    : metrics.historicalReturnCoverage === 'not_configured'
+      ? 'Configura el histórico'
+      : metrics.historicalReturnCoverage === 'incomplete'
+        ? 'Histórico incompleto'
+        : `YTD · Último mes: ${formatPct(metrics.lastCompleteMonthReturnPct!)}`;
 
   // Prepare Data for Cost vs Value Chart
   // We sort by Current Value to show the most significant positions first
@@ -68,8 +81,8 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
         </div>
       </div>
 
-      {/* KPI Grid - Mobile 2 cols, Tablet 2 cols, Desktop 4 cols */}
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+      {/* KPI Grid - Mobile 2 cols, Tablet 2 cols, Desktop 5 cols */}
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
         
         {/* 1. Patrimonio Total (Net Worth) */}
         <StatCard 
@@ -105,6 +118,15 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
           subValue="Realizado acumulado"
           trend={metrics.realizedPnLEur >= 0 ? 'up' : 'down'}
           icon={<Icons.Transactions size={20} />}
+        />
+
+        {/* 5. Monthly Modified Dietz performance */}
+        <StatCard
+          title="Rentabilidad %"
+          value={hasHistoricalReturn ? formatPct(metrics.timeWeightedReturnYtdPct!) : '--'}
+          subValue={historicalReturnSubtitle}
+          trend={historicalReturnTrend}
+          icon={<Icons.Up size={20} />}
         />
       </div>
 

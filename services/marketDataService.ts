@@ -560,6 +560,9 @@ export const calculatePositionsAndMetrics = async (selectedPortfolio: PortfolioO
     totalLiquidityAddedEur: 0,
     realizedPnLEur: 0,
     totalReturnPct: 0,
+    timeWeightedReturnYtdPct: null,
+    lastCompleteMonthReturnPct: null,
+    historicalReturnCoverage: 'loading',
     projectedCloseEur: 0
   };
 

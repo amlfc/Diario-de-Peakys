@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { calculatePositionsAndMetrics } from './services/marketDataService';
 import { calculateAnalysisMetrics, calculateClosedTrades } from './services/analysisService';
+import { calculateMonthlyPerformanceMetrics, HISTORICAL_PRICE_FEED_KEY } from './services/performanceService';
 import { Position, DashboardMetrics, PortfolioOwner, Transaction, User } from './types';
 import { seedDatabase, db } from './db';
 import { useLiveData } from './hooks/useLiveData';
@@ -65,7 +66,9 @@ const AppContent: React.FC = () => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     totalValueEur: 0, availableCashEur: 0, totalCostEur: 0, unrealizedPnLEur: 0, unrealizedPnLPct: 0,
-    totalLiquidityAddedEur: 0, realizedPnLEur: 0, totalReturnPct: 0, projectedCloseEur: 0
+    totalLiquidityAddedEur: 0, realizedPnLEur: 0, totalReturnPct: 0,
+    timeWeightedReturnYtdPct: null, lastCompleteMonthReturnPct: null, historicalReturnCoverage: 'loading',
+    projectedCloseEur: 0
   });
 
   // --- DATA FETCHING & SCOPING ---
@@ -96,6 +99,12 @@ const AppContent: React.FC = () => {
   // Transactions Trigger for refreshes
   const transactionsTrigger = useLiveData(() => db.transactions.toArray());
   const liquidityTrigger = useLiveData(() => db.liquidity.toArray());
+
+  const allLiquidity = useMemo(() => {
+    const liquidity = liquidityTrigger || [];
+    if (selectedPortfolio === 'ALL') return liquidity;
+    return liquidity.filter(item => item.portfolio === selectedPortfolio);
+  }, [liquidityTrigger, selectedPortfolio]);
 
   // Filter Transactions based on Visible Portfolios
   const allTransactions = useLiveData(async () => {
@@ -155,17 +164,24 @@ const AppContent: React.FC = () => {
            // For a perfect implementation, `marketDataService` needs to accept a list of portfolios.
       }
       
+      const monthlyPerformance = await calculateMonthlyPerformanceMetrics({
+        transactions: allTransactions,
+        liquidity: allLiquidity,
+        currentEquityEur: data.dashboard.projectedCloseEur
+      });
+
       setPositions(data.activePositions);
       setMetrics({
         ...data.dashboard,
-        realizedPnLEur: closedTradeMetrics.totalProfitEur
+        realizedPnLEur: closedTradeMetrics.totalProfitEur,
+        ...monthlyPerformance
       });
     };
     
     refresh();
     const interval = setInterval(refresh, 5000);
     return () => clearInterval(interval);
-  }, [selectedPortfolio, transactionsTrigger, liquidityTrigger, userPortfolios, allTransactions]); 
+  }, [selectedPortfolio, transactionsTrigger, liquidityTrigger, userPortfolios, allTransactions, allLiquidity]);
 
   const handleAddNew = () => {
     setEditingTransaction(undefined);
@@ -193,7 +209,10 @@ const AppContent: React.FC = () => {
               portfolios: await db.portfolios.toArray(),
               assetTypes: await db.assetTypes.toArray(),
               allocationTargets: await db.allocationTargets.toArray(),
-              metadata: { priceFeedUrl: localStorage.getItem('PRICE_FEED_URL') }
+              metadata: {
+                priceFeedUrl: localStorage.getItem('PRICE_FEED_URL'),
+                historicalPriceFeedUrl: localStorage.getItem(HISTORICAL_PRICE_FEED_KEY)
+              }
           };
           const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
           const url = URL.createObjectURL(blob);

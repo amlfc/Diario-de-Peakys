@@ -156,7 +156,8 @@ class AutoSyncService {
         metadata: {
            version: 4,
            savedAt: new Date().toISOString(),
-           priceFeedUrl: localStorage.getItem('PRICE_FEED_URL') || ''
+           priceFeedUrl: localStorage.getItem('PRICE_FEED_URL') || '',
+           historicalPriceFeedUrl: localStorage.getItem('HISTORICAL_PRICE_FEED_URL') || ''
         }
       };
 

@@ -6,6 +6,7 @@ import { Card } from './ui/Card';
 import { Icons } from './ui/Icons';
 import { importTransactionsFromExcel, exportTransactionsToExcel } from '../services/excelService';
 import { repairTransactionFxRates } from '../services/marketDataService';
+import { HISTORICAL_PRICE_FEED_KEY } from '../services/performanceService';
 import { DEFAULT_RISK_LEVELS, getRiskLevelsConfig, saveRiskLevelsConfig } from '../utils/riskLevels';
 import { normalizeStoredFxRateToEur } from '../utils/fx';
 
@@ -26,6 +27,8 @@ const SettingsView: React.FC = () => {
   // Price Feed State
   const [priceFeedUrl, setPriceFeedUrl] = useState(localStorage.getItem('PRICE_FEED_URL') || '');
   const [isSavingUrl, setIsSavingUrl] = useState(false);
+  const [historicalPriceFeedUrl, setHistoricalPriceFeedUrl] = useState(localStorage.getItem(HISTORICAL_PRICE_FEED_KEY) || '');
+  const [isSavingHistoricalUrl, setIsSavingHistoricalUrl] = useState(false);
   const [isRepairingFx, setIsRepairingFx] = useState(false);
 
   // Risk management levels (Stops / TP-Trailing activation)
@@ -41,6 +44,7 @@ const SettingsView: React.FC = () => {
   const isApiConfigured = apiUrl.trim().length > 0;
   const isFxApiConfigured = fxApiUrl.trim().length > 0;
   const isPriceFeedConfigured = priceFeedUrl.trim().length > 0;
+  const isHistoricalPriceFeedConfigured = historicalPriceFeedUrl.trim().length > 0;
 
   const isValidWebUrl = (value: string) => {
     try {
@@ -217,6 +221,26 @@ const SettingsView: React.FC = () => {
     }
   };
 
+  const handleSaveHistoricalPriceUrl = () => {
+    const trimmed = historicalPriceFeedUrl.trim();
+    if (!trimmed) {
+      alert('Debes indicar la URL de la pestaña histórica de Google Sheets.');
+      return;
+    }
+    if (!isValidWebUrl(trimmed)) {
+      alert('La URL histórica de Google Sheets no es válida.');
+      return;
+    }
+
+    setIsSavingHistoricalUrl(true);
+    localStorage.setItem(HISTORICAL_PRICE_FEED_KEY, trimmed);
+    setTimeout(() => {
+      setIsSavingHistoricalUrl(false);
+      alert('URL histórica guardada. La rentabilidad mensual se actualizará en el Dashboard.');
+      window.location.reload();
+    }, 500);
+  };
+
   const sanitizeTransactionFx = (tx: any) => {
     const currencyPlatform = (tx.currencyPlatform || tx.currency_platform || tx.divisa || tx.currency || 'EUR').toString().toUpperCase();
     const rawFx = tx.fxRateToEur ?? tx.fx_rate_to_eur ?? tx.tipo_cambio ?? tx.fxRate;
@@ -274,6 +298,7 @@ const SettingsView: React.FC = () => {
         positionNotes: await db.positionNotes.toArray(),
         metadata: {
           priceFeedUrl: localStorage.getItem('PRICE_FEED_URL') || '',
+          historicalPriceFeedUrl: localStorage.getItem(HISTORICAL_PRICE_FEED_KEY) || '',
           riskLevels: getRiskLevelsConfig(),
           exportedAt: new Date().toISOString()
         }
@@ -323,6 +348,9 @@ const SettingsView: React.FC = () => {
       if (typeof parsed?.metadata?.priceFeedUrl === 'string') {
         localStorage.setItem('PRICE_FEED_URL', parsed.metadata.priceFeedUrl);
       }
+      if (typeof parsed?.metadata?.historicalPriceFeedUrl === 'string') {
+        localStorage.setItem(HISTORICAL_PRICE_FEED_KEY, parsed.metadata.historicalPriceFeedUrl);
+      }
       if (parsed?.metadata?.riskLevels) {
         saveRiskLevelsConfig(parsed.metadata.riskLevels);
       }
@@ -351,7 +379,7 @@ const SettingsView: React.FC = () => {
               Esta sección resume y da acceso directo a las utilidades clave restauradas: URL API, URL Google Sheets y exportación Excel completa.
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
                 <p className="text-[11px] text-slate-400">URL API</p>
                 <p className={`text-xs font-medium ${isApiConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>
@@ -363,6 +391,13 @@ const SettingsView: React.FC = () => {
                 <p className="text-[11px] text-slate-400">URL Google Sheets</p>
                 <p className={`text-xs font-medium ${isPriceFeedConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>
                   {isPriceFeedConfigured ? 'Configurada' : 'Pendiente de configurar'}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                <p className="text-[11px] text-slate-400">Histórico Google Sheets</p>
+                <p className={`text-xs font-medium ${isHistoricalPriceFeedConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {isHistoricalPriceFeedConfigured ? 'Configurado' : 'Pendiente de configurar'}
                 </p>
               </div>
 
@@ -471,6 +506,25 @@ const SettingsView: React.FC = () => {
                  <button onClick={handleSavePriceUrl} disabled={isSavingUrl} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap">
                    {isSavingUrl ? '...' : 'Guardar URL'}
                  </button>
+              </div>
+              <div className="pt-4 border-t border-slate-700 space-y-2">
+                <label className="block text-xs font-medium text-slate-300">Histórico para rentabilidad mensual</label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={historicalPriceFeedUrl}
+                    onChange={(event) => setHistoricalPriceFeedUrl(event.target.value)}
+                    placeholder="URL de la pestaña con date, type, symbol, valueEur"
+                    className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-blue-500 outline-none text-sm"
+                  />
+                  <button
+                    onClick={handleSaveHistoricalPriceUrl}
+                    disabled={isSavingHistoricalUrl}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+                  >
+                    {isSavingHistoricalUrl ? '...' : 'Guardar histórico'}
+                  </button>
+                </div>
               </div>
            </div>
         </Card>
