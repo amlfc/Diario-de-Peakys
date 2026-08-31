@@ -160,6 +160,8 @@ export interface DashboardMetrics {
   timeWeightedReturnYtdPct: number | null;
   lastCompleteMonthReturnPct: number | null;
   historicalReturnCoverage: 'loading' | 'complete' | 'incomplete' | 'not_configured';
+  historicalReturnIssue: 'missing_data' | 'invalid_period' | 'source_empty' | null;
+  historicalReturnMissingSymbols: string[];
   projectedCloseEur: number; // If everything was sold today
 }
 

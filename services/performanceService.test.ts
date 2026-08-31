@@ -124,6 +124,8 @@ describe('calculateMonthlyPerformanceFromPoints', () => {
     ]);
 
     expect(result.historicalReturnCoverage).toBe('incomplete');
+    expect(result.historicalReturnIssue).toBe('missing_data');
+    expect(result.historicalReturnMissingSymbols).toEqual(['TEST']);
     expect(result.timeWeightedReturnYtdPct).toBeNull();
     expect(result.lastCompleteMonthReturnPct).toBeNull();
   });

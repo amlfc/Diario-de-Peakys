@@ -68,6 +68,7 @@ const AppContent: React.FC = () => {
     totalValueEur: 0, availableCashEur: 0, totalCostEur: 0, unrealizedPnLEur: 0, unrealizedPnLPct: 0,
     totalLiquidityAddedEur: 0, realizedPnLEur: 0, totalReturnPct: 0,
     timeWeightedReturnYtdPct: null, lastCompleteMonthReturnPct: null, historicalReturnCoverage: 'loading',
+    historicalReturnIssue: null, historicalReturnMissingSymbols: [],
     projectedCloseEur: 0
   });
 

@@ -3,11 +3,14 @@ import { Currency, LiquidityEvent, Transaction } from '../types';
 export const HISTORICAL_PRICE_FEED_KEY = 'HISTORICAL_PRICE_FEED_URL';
 
 export type HistoricalReturnCoverage = 'loading' | 'complete' | 'incomplete' | 'not_configured';
+export type HistoricalReturnIssue = 'missing_data' | 'invalid_period' | 'source_empty' | null;
 
 export interface MonthlyPerformanceMetrics {
   timeWeightedReturnYtdPct: number | null;
   lastCompleteMonthReturnPct: number | null;
   historicalReturnCoverage: HistoricalReturnCoverage;
+  historicalReturnIssue: HistoricalReturnIssue;
+  historicalReturnMissingSymbols: string[];
 }
 
 type HistoricalPointType = 'ASSET' | 'FX';
@@ -393,7 +396,9 @@ export const calculateMonthlyPerformanceFromPoints = ({
     return {
       timeWeightedReturnYtdPct: null,
       lastCompleteMonthReturnPct: null,
-      historicalReturnCoverage: 'incomplete'
+      historicalReturnCoverage: 'incomplete',
+      historicalReturnIssue: 'source_empty',
+      historicalReturnMissingSymbols: []
     };
   }
 
@@ -423,7 +428,9 @@ export const calculateMonthlyPerformanceFromPoints = ({
       return {
         timeWeightedReturnYtdPct: null,
         lastCompleteMonthReturnPct: null,
-        historicalReturnCoverage: 'incomplete'
+        historicalReturnCoverage: 'incomplete',
+        historicalReturnIssue: missingSymbols.size > 0 ? 'missing_data' : 'invalid_period',
+        historicalReturnMissingSymbols: Array.from(missingSymbols)
       };
     }
 
@@ -451,14 +458,18 @@ export const calculateMonthlyPerformanceFromPoints = ({
     return {
       timeWeightedReturnYtdPct: null,
       lastCompleteMonthReturnPct: null,
-      historicalReturnCoverage: 'incomplete'
+      historicalReturnCoverage: 'incomplete',
+      historicalReturnIssue: missingSymbols.size > 0 ? 'missing_data' : 'invalid_period',
+      historicalReturnMissingSymbols: Array.from(missingSymbols)
     };
   }
 
   return {
     timeWeightedReturnYtdPct: accumulatedFactor - 1,
     lastCompleteMonthReturnPct: lastCompleteMonth.value,
-    historicalReturnCoverage: 'complete'
+    historicalReturnCoverage: 'complete',
+    historicalReturnIssue: null,
+    historicalReturnMissingSymbols: []
   };
 };
 
@@ -470,7 +481,9 @@ export const calculateMonthlyPerformanceMetrics = async (
     return {
       timeWeightedReturnYtdPct: null,
       lastCompleteMonthReturnPct: null,
-      historicalReturnCoverage: 'not_configured'
+      historicalReturnCoverage: 'not_configured',
+      historicalReturnIssue: null,
+      historicalReturnMissingSymbols: []
     };
   }
 

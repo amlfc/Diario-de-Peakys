@@ -27,12 +27,20 @@ const Dashboard: React.FC<DashboardProps> = ({ metrics, selectedPortfolio, posit
   const historicalReturnTrend = !hasHistoricalReturn
     ? 'neutral'
     : metrics.timeWeightedReturnYtdPct! >= 0 ? 'up' : 'down';
+  const missingHistorySymbols = metrics.historicalReturnMissingSymbols || [];
+  const missingHistorySummary = missingHistorySymbols.length > 0
+    ? `${missingHistorySymbols.slice(0, 2).join(', ')}${missingHistorySymbols.length > 2 ? ` +${missingHistorySymbols.length - 2}` : ''}`
+    : '';
   const historicalReturnSubtitle = metrics.historicalReturnCoverage === 'loading'
     ? 'Calculando histórico...'
     : metrics.historicalReturnCoverage === 'not_configured'
       ? 'Configura el histórico'
       : metrics.historicalReturnCoverage === 'incomplete'
-        ? 'Histórico incompleto'
+        ? metrics.historicalReturnIssue === 'missing_data'
+          ? `Falta: ${missingHistorySummary}`
+          : metrics.historicalReturnIssue === 'source_empty'
+            ? 'Fuente histórica vacía'
+            : 'Periodo sin base válida'
         : `YTD · Último mes: ${formatPct(metrics.lastCompleteMonthReturnPct!)}`;
 
   // Prepare Data for Cost vs Value Chart
